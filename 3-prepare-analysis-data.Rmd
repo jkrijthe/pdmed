@@ -1,0 +1,400 @@
+---
+title: "gmethods-ppmi-data"
+author: "Jesse H. Krijthe"
+date: "3/6/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(broom)
+source("R/tools.R")
+
+load("data/causal-ppmi.RData")
+```
+
+
+```{r}
+#' Imputes values by taking the mean of the 2 surrounding values
+impute_middle <- function(var,distance=1) {
+  if_else(is.na(var),(lag(var,distance)+lead(var,distance))/2,as.numeric(var))
+}
+
+#' Imputes values of treatment from surrounding values and assuming monotonicity of assignment
+impute_treatment_single <- function(val) {
+  case_when(
+    !is.na(val) ~ val,
+    lag(val) & lead(val) ~ TRUE,
+    !lag(val) & lead(val) ~ FALSE, # Note: if we are unsure therapy was initiated, assume it is.
+    !lag(val) & !lead(val) ~ FALSE,
+    TRUE ~ NA
+  )
+}
+
+#' Impute treatment for variables
+impute_treatment <- function(data, vars_impute) {
+  data %>% 
+    group_by(id) %>% 
+    mutate_at(vars_impute,impute_treatment_single) %>% 
+    ungroup
+}
+
+impute_treatment_type_single <- function(val) {
+  case_when(
+    !is.na(val) ~ val,
+    !is.na(lead(val)) ~ lead(val),
+    TRUE ~ NA_integer_
+  )
+}
+
+impute_treatment_type <- function(data, vars_impute) {
+  data %>% 
+    group_by(id) %>% 
+    mutate_at(vars_impute,impute_treatment_type_single) %>% 
+    ungroup
+}
+
+# Person 4070 did not have values at baseline, impute from second measurement
+modelfun <- function(.x,time) {
+  if (time==0) {
+    lm(Value~lead,data=.x)
+  } else if (nrow(na.omit(.x))==0) {
+    NULL
+  } else {
+      lm(Value~lag+lead,data=.x)
+  }
+}
+
+#' Impute values by linear models with the next and previous value in the sequence
+impute_linear_fast <- function(data, vars_impute, distance=1) {
+  
+  data %>% 
+    select(id,time,one_of(vars_impute)) %>% 
+    gather("Var","Value",-id,-time) %>% 
+    group_by(id,Var) %>% 
+    arrange(time) %>%
+    mutate_at(vars("Value"),list("lead"=function(x) {lead(x,n = distance)},"lag"=function(x) {lag(x,n = distance)})) %>% 
+    ungroup %>% 
+    group_by(Var,time) %>% 
+    nest() %>% 
+    mutate(model=map(data, ~if (nrow(na.omit(.x))==0) {NULL} else {lm(Value~lag+lead,data=.x)})) %>%
+    mutate(model=map2(data,time,modelfun)) %>%
+    mutate(pred=map2(data, model, ~if (is.null(.y)) {rep(NA_real_,nrow(.x))} else {predict(.y,.x) })) %>% 
+    select(-model) %>% 
+    unnest %>% 
+    mutate(Value=if_else(!is.na(Value),as.numeric(Value),as.numeric(pred))) %>% 
+    select(id,time,Var,Value) %>% 
+    spread(Var,Value) %>% 
+    left_join(data %>% select(-one_of(vars_impute)),.,by=c("id","time"))
+}
+
+#' Returns missing of any of the variables has a missing value
+determine_missing <- function(m,vars) {
+  m %>% select(one_of(vars)) %>% mutate_all(is.na) %>% apply(1,any)
+}
+
+#' Turn missingness variable into censoring variable
+censor <- function(m) {
+  cen <- rep(FALSE,length(m))
+  for (i in seq_along(m)) {
+    if (i==1) cen[i] <- m[i]
+    else cen[i] <- (m[i] | cen[i-1])
+  }
+  cen
+}
+```
+
+## Constant Features
+```{r}
+# Constant Characteristics
+df_constant_v <- df_constant %>% 
+  filter(Group=="PD") %>% 
+  mutate(id=as.character(PATNO)) %>% 
+  rename(Duration=`Disease duration`) %>% 
+  select(id, Age, Sex, Duration, Education, Group)
+```
+
+## ST measurements
+```{r}
+events <- c("BL","V02","V04","V05","V06","V07","V08","V09","V10","V11","V12","ST")
+events_all <- c("BL","V01","V02","V03","V04","V05","V06","V07","V08","V09","V10","V11","V12","ST")
+
+df_t <- df_repeated %>% 
+  mutate(id=as.character(PATNO)) %>% 
+  filter(id %in% df_constant_v$id) %>% 
+  filter(EVENT_ID %in% events_all)  %>% 
+  mutate(PDMEDYN=if_else(is.na(PDMEDYN) & EVENT_ID=="ST", FALSE, PDMEDYN))
+
+# Find all times where there is a ST measurements and see which measurement should be replaced
+df_sts <- semi_join(df_t, df_t %>% filter(EVENT_ID=="ST"),by=c("PATNO","Time")) %>% 
+  group_by(id,Time) %>% 
+  arrange(EVENT_ID) %>% 
+  mutate(Year=Year[n()],stolen=EVENT_ID[n()]) %>%  # Usually the last observation that is replaced
+  slice(1) %>% 
+  ungroup %>% 
+  select(-stolen) %>% 
+  mutate(Year=if_else(is.na(Year),ceiling(Time*2)/2,Year)) # When year still missing, this is usually because the next observation is missing 
+
+
+df_repeated_a <- df_t %>% 
+  filter(EVENT_ID!="ST") %>% 
+  bind_rows(df_sts) %>% 
+  arrange(id,EVENT_ID) %>% 
+  distinct(id,Year,.keep_all = TRUE) %>% # Keep only ST measurements at those times
+  mutate(Month=Year*12)
+```
+
+## Imputation
+```{r}
+vars_impute <- c("MDS_UPDRS_I","MDS_UPDRS_II","MDS_UPDRS_III_other","MSEADLG",df_repeated_a %>% names %>% str_subset("PC.*_"))
+
+df_varying <- df_repeated_a %>% 
+  filter(Month %in% c(0,6,12,18,24,30,36,42,48,54,60)) %>%
+  mutate(time=Month/6) %>% 
+  arrange(id,time) %>% 
+  complete(id,time) %>% 
+  # group_by(id) %>% 
+  # mutate_at(c("MDS_UPDRS_I","MDS_UPDRS_II","MDS_UPDRS_III_other","MSEADLG"),impute_middle,distance=1) %>% 
+  # mutate_at(c("MoCA"),impute_middle,distance=2) %>% 
+  # ungroup %>% 
+  #group_by(id) %>% 
+  #filter(is.na(MDS_UPDRS_I),!is.na(lead(MDS_UPDRS_I)),!is.na(lag(MDS_UPDRS_I)))
+  impute_linear_fast(vars_impute = vars_impute,distance=1) %>% 
+  impute_linear_fast(c("MoCA"),distance=2) %>%
+  impute_treatment(c("ONLDOPA","PDMEDYN")) %>% 
+  impute_treatment_type(c("PD_MED_USE")) %>% 
+  mutate(PDMEDYN=if_else(is.na(PDMEDYN) & ONLDOPA,TRUE,PDMEDYN)) %>% # if on ldopa, then on pdmed
+  mutate(ONLDOPA=if_else(is.na(ONLDOPA) & !PDMEDYN,FALSE,ONLDOPA)) %>% # if not on pdmed then no ldopa
+  mutate(PDMEDYN=if_else(is.na(PDMEDYN) & !is.na(LEDDnonzero),LEDDnonzero,PDMEDYN)) %>% 
+  mutate(MoCA=if_else(Month %in% c(6,18,30,42,54),99,MoCA)) %>%
+  mutate(.,missing=determine_missing(.,c("MDS_UPDRS_I","MDS_UPDRS_II","MDS_UPDRS_III_other","MSEADLG","MoCA","PDMEDYN","ONLDOPA"))) %>% 
+  mutate(MoCA=if_else(Month %in% c(6,18,30,42,54),NA_real_,MoCA)) %>% 
+  group_by(id) %>% 
+  arrange(time) %>% 
+  mutate(censored=censor(missing)) %>% 
+  #mutate(censored_next=lead(censored)) %>%
+  mutate(censored_lag=lag(censored,default = FALSE)) %>%
+  ungroup %>% 
+  filter(!censored_lag, !censored) %>% 
+  complete(id,time,fill=list("censored"=TRUE)) %>% 
+  mutate(Month=time*6)
+
+df_varying %>% count(id) %>% .$n %>% {.==11} %>% all
+
+df_varying_tv <- df_varying %>% 
+  filter(time %in% c(0,1,2,3,4)) %>% 
+  select(id,time,starts_with("MDS_"),starts_with("MoCA"),starts_with("MSEADLG"),ONLDOPA,PDMEDYN,censored,PD_MED_USE,QUIP,QUIP8,QUIPany,NP4WDYSK,NP4OFF,LEDD)
+
+df_varying_4y <- df_varying %>% 
+  filter(time %in% c(0,1,2,3,4,5,6,7,8)) %>%
+  select(id,time,starts_with("MDS_"),starts_with("MoCA"),starts_with("MSEADLG"),ONLDOPA,PDMEDYN,censored,PD_MED_USE,QUIP,QUIP8,QUIPany,NP4WDYSK,NP4OFF,LEDD)
+
+df_last_tv <- df_varying %>% 
+    mutate(Year=Month/12) %>% 
+    filter(Year %in% c(2,3,4)) %>% 
+    mutate(Year=factor(Year)) %>% 
+    select(-EVENT_ID,-PATNO,-Time,-Date) %>% 
+    select(id,Year,starts_with("MDS"),MoCA,MSEADLG,QUIP,QUIP8,QUIPany,NP4WDYSK,NP4OFF,LEDD) %>% 
+    as.data.frame %>% 
+    reshape(idvar = "id", timevar="Year", direction="wide", sep="_year")  %>%
+  select(id,starts_with("MDS_"),starts_with("MoCA"),starts_with("MSEADLG"),starts_with("QUIP"),starts_with("NP4WDYSK"),starts_with("NP4OFF"),starts_with("LEDD"))
+
+# Subjects that are censored but might not need to be
+# df_varying %>% filter(censored,!missing) %>% count(id,sort=TRUE)
+# df_varying %>% filter(id==3284) %>% select(-PATNO,-starts_with("PC"))
+# df_repeated_a %>% filter(id==3279) %>% select(-PATNO,-starts_with("PC"))
+```
+
+
+## Outcomes
+```{r}
+df_constant_tv <- df_constant_v 
+
+```
+
+```{r}
+saveRDS(df_varying,"data/df_varying_all.rds")
+
+saveRDS(df_varying_tv, "data/df_varying.rds")
+saveRDS(df_last_tv, "data/df_last.rds")
+saveRDS(df_varying_4y, "data/df_varying_4y.rds")
+saveRDS(df_constant_tv, "data/df_constant.rds")
+```
+
+
+How many started on Levodopa?
+```{r}
+ids_levoonly <- df_varying_tv %>%
+  mutate(LevoOnly=PD_MED_USE %in% c(0,NA,1,4,5,7)) %>% 
+  group_by(id) %>% 
+  summarize(LevoOnly=all(LevoOnly)) %>% 
+  ungroup %>% 
+  filter(LevoOnly) %>% 
+  .$id %>% unique
+#length(ids_levoonly)
+
+df_varying_tv %>% 
+  filter(id %in% ids_levoonly) %>% 
+  group_by(id) %>% 
+  filter(PDMEDYN,!lag(PDMEDYN)) %>% 
+  ungroup %>% 
+  nrow
+```
+
+How many started on Levodopa and used nothing else?
+```{r}
+ids_levoonly <- df_varying_tv %>%
+  mutate(LevoOnly=PD_MED_USE %in% c(0,NA,1)) %>% 
+  group_by(id) %>% 
+  summarize(LevoOnly=all(LevoOnly)) %>% 
+  ungroup %>% 
+  filter(LevoOnly) %>% 
+  .$id %>% unique
+length(ids_levoonly)
+
+df_varying_tv %>% 
+  filter(id %in% ids_levoonly) %>% 
+  group_by(id) %>% 
+  filter(ONLDOPA,!lag(ONLDOPA)) %>% 
+  ungroup %>% 
+  nrow
+```
+ How many started on Levodopa and what combination did they start on?
+```{r}
+df_varying_tv %>% 
+  filter(PDMEDYN, ONLDOPA,!lag(PDMEDYN)) %>% 
+  nrow
+
+# Ask Lieneke: some "other"" are also ONLDOPA?  
+df_varying %>% 
+  group_by(id) %>% 
+  filter(PDMEDYN, ONLDOPA,!lag(PDMEDYN)) %>% 
+  ungroup %>% 
+  count(PD_MED_USE)
+```
+
+How many part four measurements are available after 2 years?
+```{r}
+ids_levo_starters <- df_varying_tv %>% 
+  group_by(id) %>% 
+  filter(PDMEDYN, ONLDOPA,!lag(PDMEDYN)) %>% 
+  ungroup %>% 
+  .$id %>% unique
+length(ids_levo_starters)
+
+ids_stopped <- df_varying_tv %>% 
+  group_by(id) %>% 
+  filter(!PDMEDYN, lag(PDMEDYN,default = FALSE)) %>% 
+  ungroup
+
+length(setdiff(ids_levo_starters,ids_stopped))
+
+df_varying_tv %>% 
+  filter(id %in% setdiff(ids_levo_starters,ids_stopped)) %>% 
+  filter(time==4) %>% 
+  count(is.na(MDS_UPDRS_IV))
+```
+
+How many missings for part 4 for when considering starters in general?
+```{r}
+ids_starters <- df_varying_tv %>% 
+  filter(PDMEDYN,!lag(PDMEDYN)) %>% 
+  .$id
+
+df_varying_tv %>% 
+  filter(id %in% ids_starters) %>% 
+  filter(time==4) %>% 
+  filter(!censored) %>% 
+  #filter(is.na(MDS_UPDRS_IV))
+  count(is.na(MDS_UPDRS_IV))
+```
+
+What starting therapy is used in different centers?
+```{r}
+
+df_varying %>% 
+  filter(PDMEDYN,!lag(PDMEDYN)) %>% 
+  left_join(df_constant %>% mutate(id=as.character(PATNO))) %>% 
+  group_by(ONLDOPA) %>% 
+  summarize(m=mean(Age,na.rm=TRUE),sd=sd(Age,na.rm=TRUE)) %>% 
+  ungroup
+
+df_varying %>% 
+  filter(PDMEDYN,!lag(PDMEDYN)) %>% 
+  left_join(df_constant %>% mutate(id=as.character(PATNO))) %>% 
+  ggplot(aes(x=Age,fill=ONLDOPA)) +
+  geom_histogram() +
+  facet_grid(ONLDOPA~.)
+
+df_varying %>% 
+  filter(PDMEDYN,!lag(PDMEDYN)) %>% 
+  left_join(df_constant %>% mutate(id=as.character(PATNO))) %>% 
+  count(Center,ONLDOPA) %>% spread(ONLDOPA,n) #%>% clipr::write_clip()
+  #count(Center,PD_MED_USE) %>% spread(PD_MED_USE,n)
+```
+
+# Show data
+
+How many already started, how many censored during?
+```{r}
+df_t <- df_varying_tv %>% 
+  arrange(id,time) %>% 
+  gather(treatment_name,treatment, ONLDOPA, PDMEDYN, censored) 
+
+df_therapy <- df_t %>% group_by(id,treatment_name) %>% summarize(years_treatment=sum(treatment)/2) %>% ungroup
+
+df_therapy %>% count(treatment_name,years_treatment) %>% spread(treatment_name,n)
+```
+
+How many censored on outcome
+how many left + does this correspond to numbers used in analyses?
+
+```{r}
+df_constant_tv %>% summarise_all(~sum(is.na(.x))) %>% gather
+# df_constant_tv %>% select(censored_year2,starts_with("MDS"),starts_with("MSEADLG"),starts_with("MoCA")) %>%
+#   gather("v","l",-censored_year2) %>% 
+#   group_by(v) %>% 
+#   summarize(miss=sum(is.na(l)), msscen=sum(is.na(l) & is.na(censored_year2)))
+```
+
+Number of starters
+```{r}
+df_varying %>% 
+  left_join(df_constant_tv, by="id") %>% 
+  #filter(EVENT_ID %in% events) %>% 
+  filter(Group=="PD") %>% 
+  #mutate(EVENT_ID=fct_relevel(EVENT_ID, c("SC","BL",paste0("V0",1:9),paste0("V",10:13),"ST"))) %>% 
+  select(Month,LEDDnonzero,ONLDOPA,PDMEDYN,LevoMed) %>% 
+  gather("var","val",-Month) %>%
+  mutate(val=fct_relevel(fct_explicit_na(factor(val)),c("(Missing)","FALSE","TRUE"))) %>% 
+  ggplot(aes(x=Month,fill=val)) +
+  geom_bar() +
+  theme_krijthe_gray(base_size = 6) +
+  ylab("Number of patients") +
+  xlab("Visit") +
+  ggtitle("Number of patients on therapy at different visits") +
+  facet_wrap(~var) +
+  scale_x_continuous(breaks=seq(0,60,by=6))
+```
+
+Progress in different groups
+```{r}
+df_t %>%   
+  left_join(df_therapy,by=c("id","treatment_name")) %>% 
+  gather(Key,Value,MDS_UPDRS_I,MDS_UPDRS_II,MDS_UPDRS_III_other,MoCA,MSEADLG, NP4WDYSK,NP4OFF, QUIP,QUIP8,QUIPany) %>% 
+  group_by(time,years_treatment,Key,treatment_name) %>% summarize(n(), m=mean(Value,na.rm=TRUE)) %>% 
+  select(time,years_treatment,Key,years_treatment,m,treatment_name) %>% na.omit %>% 
+  ggplot(aes(x=time*6,y=m,color=factor(years_treatment))) +geom_point() + geom_line() +
+  scale_x_continuous(breaks =seq(0,24, by=6)) + facet_grid(Key~treatment_name,scales="free_y") + theme(legend.position = "bottom")
+```
+
+# Check Missingness
+```{r}
+# Missingness checks
+
+# PCs are all computed
+all(is.na(df_repeated_a$MDS_UPDRS_I)==is.na(df_repeated_a$PC1_Comp.1))
+all(is.na(df_repeated_a$MDS_UPDRS_II)==is.na(df_repeated_a$PC2_Comp.1))
+all(is.na(df_repeated_a$MDS_UPDRS_III_other)==is.na(df_repeated_a$PC3_Comp.1))
+```

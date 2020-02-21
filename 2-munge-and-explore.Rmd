@@ -1,0 +1,538 @@
+---
+title: "Processing PPMI"
+author: "Jesse H. Krijthe"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+library(tidyverse)
+library(broom)
+library(knitr)
+source("R/tools.R")
+
+load("data/data.RData")
+```
+
+
+# Fixed Variables
+
+```{r constant-variables}
+df_constant <- subject_characteristics %>% 
+  filter(!is.na(Group)) %>% 
+  select(PATNO,Education,Sex,Age,`Disease duration`,Group,Center,ENROLL_DATE) %>% 
+  mutate(ENROLL_DATE=convert_monthyear_num(ENROLL_DATE)) %>% 
+  filter(!(PATNO %in% c(41635,73467)))
+
+
+# Checks
+# Every patient in the dataset once
+df_constant %>% count(PATNO,sort = TRUE) %>% {.$n ==1} %>% all
+```
+
+```{r constant-summary}
+fac_to_str <- function(x) {
+  x %>% 
+    forcats::fct_infreq() %>% 
+    table %>% 
+    prop.table() %>% 
+    {.*100} %>%  
+    round(digits = 1) %>% 
+    {paste(names(.), ., sep = ": ", collapse=", ")}
+}
+
+cont_to_str <- function(x) {
+  paste0(x %>% 
+    mean %>%
+    round(digits = 1) %>% 
+    as.character," (",
+    x %>% 
+    sd %>%
+    round(digits = 1) %>% 
+    as.character,")"
+  )
+    
+}
+
+
+df_constant %>% 
+  group_by(Group) %>% 
+  summarize(n=n(),
+            Sex=fac_to_str(Sex), 
+            Age=cont_to_str(Age),
+            Duration=cont_to_str(`Disease duration`),
+            Education=cont_to_str(Education),
+            n_centers=length(unique(Center))) %>% 
+  gather("Var","Val",-Group) %>% 
+  mutate(Var=fct_inorder(Var)) %>% 
+  spread(Group,Val) %>% 
+  kable()
+```
+
+# Repeated Measures
+We remove the U01 measurements and premature withdrawal measurements. 
+
+```{r}
+df_repeated <- sig %>% 
+  select(PATNO,EVENT_ID,Date=INFODT) %>% 
+  filter(!(EVENT_ID %in% c("U01","PW"))) %>% 
+  left_join(df_constant %>% select(PATNO,ENROLL_DATE),by="PATNO") %>% 
+  mutate(Time=`Date`-ENROLL_DATE) %>% 
+  select(-ENROLL_DATE) %>% 
+  mutate(Year = case_when(
+    EVENT_ID=="BL" ~ 0,
+    EVENT_ID=="V01" ~ 0.25,
+    EVENT_ID=="V02" ~ 0.5,
+    EVENT_ID=="V03" ~ 0.75,
+    EVENT_ID=="V04" ~ 1,
+    EVENT_ID=="V05" ~ 1.5,
+    EVENT_ID=="V06" ~ 2,
+    EVENT_ID=="V07" ~ 2.5,
+    EVENT_ID=="V08" ~ 3,
+    EVENT_ID=="V09" ~ 3.5,
+    EVENT_ID=="V10" ~ 4,
+    EVENT_ID=="V11" ~ 4.5,
+    EVENT_ID=="V12" ~ 5,
+    EVENT_ID=="V13" ~ 6,
+    TRUE ~ NA_real_
+  ))
+```
+
+
+## MDS-UDPRS
+
+### Part I and II
+```{r}
+mds_1 %>% filter(PATNO!=54854) %>% count(PATNO,EVENT_ID,sort = TRUE) %>% {.$n ==1} %>% all
+mds_2 %>% filter(PATNO!=54854) %>% count(PATNO,EVENT_ID,sort = TRUE) %>% {.$n ==1} %>% all
+mds_4 %>% filter(PATNO!=54854) %>% count(PATNO,EVENT_ID,sort = TRUE) %>% {.$n ==1} %>% all
+
+df_repeated <- df_repeated %>% 
+  left_join(mds_1 %>% select(PATNO,EVENT_ID,MDS_UPDRS_I),by=c("PATNO","EVENT_ID")) %>% 
+  left_join(mds_2 %>% select(PATNO,EVENT_ID,MDS_UPDRS_II),by=c("PATNO","EVENT_ID")) %>% 
+  left_join(mds_4 %>% select(PATNO,EVENT_ID,MDS_UPDRS_IV,NP4WDYSK,NP4OFF),by=c("PATNO","EVENT_ID")) %>% 
+  mutate(NP4WDYSK=as.integer(NP4WDYSK>0),NP4OFF=as.integer(NP4OFF>0))
+```
+
+### Part III: On-Off state measurements
+
+At semi-annual visits, we do not know the time since last dose, so we can strictly only consider patients with no medication as having off visits at those times.
+
+When we have two on or off measurements due to the time since last medication, we pick the measurement that corresponds to the purpose of the used form.
+
+```{r}
+mds_3 %>% count(PAG_NAME,EVENT_ID) %>% spread(PAG_NAME,n)
+mds_total %>% left_join(df_constant) %>% filter(Group=="PD") %>%  mutate(on_off = case_when(
+    PD_MED_USE == "None" | (PD_MED_USE != "None" & ON_OFF_DOSE == ">=6hr") ~ "Off",
+    PD_MED_USE != "None" & ON_OFF_DOSE == "<6hr" ~ "On",
+    TRUE ~ "Other"
+  )) %>% 
+  count(on_off,EVENT_ID) %>%  spread(on_off,n)
+```
+
+```{r}
+# Here we take use off measurements, or those for which we do not know the timing of medication
+mds_other <- mds_total %>% 
+  mutate(on_off = case_when(
+    PD_MED_USE == "None" | (PD_MED_USE != "None" & ON_OFF_DOSE == ">=6hr") ~ "Other",
+    PD_MED_USE != "None" & ON_OFF_DOSE == "<6hr" ~ "On",
+    TRUE ~ "Other"
+  )) %>% 
+  mutate(matching_action = case_when(
+    (on_off=="Other" & PAG_NAME=="NUPDRS3") | (on_off=="On" & PAG_NAME=="NUPDRS3A") ~ 1,
+    TRUE ~ 0
+  )) %>% 
+  #{left_join(mds_off_left %>% count(PATNO,EVENT_ID,on_off) %>% filter(n>1),mds_off_left)}
+  group_by(PATNO,EVENT_ID,on_off) %>% 
+  arrange(desc(matching_action)) %>% 
+  slice(1) %>% 
+  ungroup %>% 
+  select(-MDS_TOTAL) %>% 
+  spread(on_off,MDS_UPDRS_III) %>% 
+  rename(MDS_UPDRS_III_other=Other) %>% 
+  filter(!is.na(MDS_UPDRS_III_other))
+
+# Here we take into account the intent of the measurement signalled by the form used
+mds_other <- mds_3 %>% 
+  filter(PAG_NAME=="NUPDRS3") %>% 
+  filter(PATNO!=54854) %>% 
+  select(PATNO,EVENT_ID,MDS_UPDRS_III_other=MDS_UPDRS_III)
+
+df_repeated <- left_join(df_repeated, mds_other %>% select(PATNO,EVENT_ID,MDS_UPDRS_III_other), by = c("PATNO", "EVENT_ID"))
+```
+
+```{r}
+mds_off <- 
+  mds_total %>% 
+  mutate(on_off = case_when(
+    PD_MED_USE == "None" | (PD_MED_USE != "None" & ON_OFF_DOSE == ">=6hr") ~ "Off",
+    PD_MED_USE != "None" & ON_OFF_DOSE == "<6hr" ~ "On",
+    TRUE ~ "Other"
+  )) %>% 
+  mutate(matching_action = case_when(
+    (on_off=="Off" & PAG_NAME=="NUPDRS3") | (on_off=="On" & PAG_NAME=="NUPDRS3A") ~ 1,
+    TRUE ~ 0
+  )) %>% 
+  group_by(PATNO,EVENT_ID,on_off) %>% 
+  arrange(desc(matching_action)) %>% 
+  slice(1) %>% 
+  ungroup %>% 
+  select(PATNO,EVENT_ID,on_off,MDS_UPDRS_III) %>% 
+  spread(on_off,MDS_UPDRS_III) %>% 
+  rename(MDS_UPDRS_III_off=Off,MDS_UPDRS_III_on=On) %>% 
+  select(-Other)
+
+df_repeated <- left_join(df_repeated, mds_off %>% select(PATNO,EVENT_ID,MDS_UPDRS_III_off,MDS_UPDRS_III_on), by = c("PATNO", "EVENT_ID"))
+```
+
+### Principal Components
+
+Calculate PCA scores using SC,BL,ST and the regular visits only for the PD patients.
+
+```{r}
+mds_m <- mds_measurements %>% 
+  left_join(df_constant,by="PATNO") %>% filter(Group=="PD") %>% 
+  filter(EVENT_ID %in% c("SC","BL","ST",paste0("V0",1:9),paste0("V",10:13))) %>% 
+  mutate(on_off = case_when(
+    PD_MED_USE == "None" | (PD_MED_USE != "None" & ON_OFF_DOSE == ">=6hr") ~ "Off",
+    PD_MED_USE != "None" & ON_OFF_DOSE == "<6hr" ~ "On",
+    TRUE ~ "Other"
+  )) %>% 
+  mutate(matching_action = case_when(
+    (on_off=="Off" & PAG_NAME=="NUPDRS3") | (on_off=="On" & PAG_NAME=="NUPDRS3A") ~ 1,
+    TRUE ~ 0
+  )) %>% 
+  #{left_join(mds_off_left %>% count(PATNO,EVENT_ID,on_off) %>% filter(n>1),mds_off_left)}
+  group_by(PATNO,EVENT_ID,on_off) %>% 
+  arrange(desc(matching_action)) %>% 
+  slice(1) %>% 
+  ungroup %>% 
+  group_by(PATNO,EVENT_ID) %>% 
+  slice(1) %>% 
+  ungroup 
+
+mds_1 %>%
+  left_join(df_constant,by="PATNO") %>% filter(Group=="PD") %>% 
+  filter(EVENT_ID %in% c("SC","BL","ST",paste0("V0",1:9),paste0("V",10:13))) %>%
+  select(PATNO,EVENT_ID,starts_with("NP1")) %>% 
+  na.omit %>%
+  {bind_cols(
+      select(.,PATNO,EVENT_ID),
+    select(.,-PATNO,-EVENT_ID) %>% princomp() %>% .$scores %>% as.data.frame() %>% rename_all(function(x){paste0("PC1_",x)})
+  )} -> df_pc1
+  
+mds_2 %>%
+  left_join(df_constant,by="PATNO") %>% filter(Group=="PD") %>% 
+  filter(EVENT_ID %in% c("SC","BL","ST",paste0("V0",1:9),paste0("V",10:13))) %>%
+  select(PATNO,EVENT_ID,starts_with("NP2")) %>% 
+  na.omit %>%
+  {bind_cols(
+      select(.,PATNO,EVENT_ID),
+    select(.,-PATNO,-EVENT_ID) %>% princomp() %>% .$scores %>% as.data.frame() %>% rename_all(function(x){paste0("PC2_",x)})
+  )} -> df_pc2
+
+mds_3 %>% 
+  filter(PATNO!=54854) %>% 
+  #filter(on_off=="Off") %>% 
+  filter(PAG_NAME=="NUPDRS3") %>% 
+  select(PATNO,EVENT_ID,starts_with("NP3")) %>% 
+  na.omit %>%
+  {bind_cols(
+      select(.,PATNO,EVENT_ID),
+    select(.,-PATNO,-EVENT_ID) %>% princomp() %>% .$scores %>% as.data.frame() %>% rename_all(function(x){paste0("PC3_",x)})
+  )} -> df_pc3
+
+df_repeated <- df_repeated %>% 
+  left_join(df_pc1,by = c("PATNO", "EVENT_ID")) %>% 
+  left_join(df_pc2,by = c("PATNO", "EVENT_ID")) %>% 
+  left_join(df_pc3,by = c("PATNO", "EVENT_ID"))
+```
+
+## MoCA, SE, MCI, QUIP
+No MOCA administered at baseline, so take the measurement at screening (SC, approximately 1 month earlier than baseline).
+
+```{r}
+df_repeated <- df_repeated %>% 
+  left_join(
+    moca %>% mutate(EVENT_ID=replace(EVENT_ID,EVENT_ID=="SC","BL")) %>% select(PATNO,EVENT_ID,MoCA=MCATOT),
+    by=c("PATNO","EVENT_ID")
+  )
+
+df_repeated <- df_repeated %>% 
+  left_join(modified_schwab,by=c("PATNO","EVENT_ID"))
+
+df_repeated <- df_repeated %>% 
+  left_join(non_motor %>% select(PATNO,EVENT_ID,QUIP,QUIP8,QUIPany), by=c("PATNO","EVENT_ID"))
+```
+
+## Medication Use
+How does medication in the medication log correspond to reported parkinson medication in the questionaire?
+
+```{r}
+events <- c("SC","BL","ST",paste0("V0",1:9),paste0("V",10:13))
+
+# LEDD from medication log
+df_usage1 <- ledds %>% 
+  #filter(EVENT_ID %in% events) %>% 
+  mutate(LEDDnonzero=LEDD>0.0) %>% 
+  select(PATNO,EVENT_ID,LEDDnonzero)
+
+# PD Medication from form
+df_usage2 <- pd_med_use %>% 
+  #filter(EVENT_ID %in% events) %>% 
+  select(PATNO,EVENT_ID,PDMEDYN) %>% 
+  mutate(PDMEDYN=as.logical(PDMEDYN))
+
+# Levo from form
+df_usage3 <- pd_med_use %>% 
+  filter(EVENT_ID %in% events) %>% 
+  select(PATNO,EVENT_ID,ONLDOPA) %>% 
+  mutate(ONLDOPA=if_else(is.na(ONLDOPA),FALSE,TRUE))
+
+# Levo from UPDRS form
+df_usage4 <- mds_3 %>% 
+  filter(EVENT_ID %in% events) %>% 
+  select(PATNO,EVENT_ID,PD_MED_USE) %>% 
+  distinct(PATNO,EVENT_ID,.keep_all = TRUE) %>% 
+  mutate(LevoMed=PD_MED_USE %in% c(1,4,5,7))
+
+df_repeated <- df_repeated %>% 
+  left_join(df_usage1, by = c("PATNO", "EVENT_ID")) %>% 
+  left_join(df_usage2, by = c("PATNO", "EVENT_ID")) %>%
+  left_join(df_usage3, by = c("PATNO", "EVENT_ID")) %>% 
+  left_join(df_usage4, by = c("PATNO", "EVENT_ID")) %>% 
+  mutate(ONLDOPA=replace(ONLDOPA,EVENT_ID %in% c("SC","BL"),FALSE)) %>% 
+  mutate(PDMEDYN=replace(PDMEDYN,EVENT_ID=="BL",FALSE)) %>% 
+  mutate(ONLDOPA=if_else(is.na(ONLDOPA) & !is.na(LevoMed),LevoMed,ONLDOPA)) %>% 
+  left_join(ledds, by=c("PATNO","EVENT_ID"))
+  
+
+# df_usage2 %>% filter(PATNO==3375)
+# df_repeats %>% filter(PATNO==3375) %>% select(EVENT_ID,PDMEDYN,LEDDnonzero,ONLDOPA) %>% filter(EVENT_ID %in% events) %>% arrange(EVENT_ID)
+```
+
+```{r}
+df_repeated %>% 
+  filter(EVENT_ID %in% events) %>% 
+  count(LEDDnonzero,PDMEDYN)
+
+df_repeated %>% 
+  filter(EVENT_ID %in% events) %>% 
+  count(LEDDnonzero,ONLDOPA)
+
+df_repeated %>% 
+  filter(EVENT_ID %in% events) %>% 
+  count(PDMEDYN,ONLDOPA)
+
+df_repeated %>% 
+  count(ONLDOPA,LevoMed)
+```
+
+```{r}
+df_repeated %>% 
+  left_join(df_constant, by="PATNO") %>% 
+  filter(EVENT_ID %in% events) %>% 
+  filter(Group=="PD") %>% 
+  mutate(EVENT_ID=fct_relevel(EVENT_ID, c("SC","BL",paste0("V0",1:9),paste0("V",10:13),"ST"))) %>% 
+  select(EVENT_ID,LEDDnonzero,ONLDOPA,PDMEDYN,LevoMed) %>% 
+  gather("var","val",-EVENT_ID) %>%
+  mutate(val=fct_relevel(fct_explicit_na(factor(val)),c("(Missing)","FALSE","TRUE"))) %>% 
+  ggplot(aes(x=EVENT_ID,fill=val)) +
+  geom_bar() +
+  theme_krijthe_gray(base_size = 6) +
+  ylab("Number of patients") +
+  xlab("Visit") +
+  ggtitle("Number of patients on therapy at different visits") +
+  facet_wrap(~var)
+```
+
+
+```{r}
+df_repeated %>% 
+  left_join(df_constant, by="PATNO") %>% 
+  filter(EVENT_ID %in% events) %>% 
+  filter(Group=="PD") %>% 
+  ggplot(aes(x=EVENT_ID,y=LEDD,group=PATNO)) +
+  geom_point(alpha=0.05) +
+  geom_line(alpha=0.05) +
+  theme_krijthe_gray(base_size = 6) +
+  xlab("Visit") +
+  ggtitle("LEDD over time per patient")
+```
+
+
+```{r, warning=FALSE}
+conmed %>% 
+  filter(DISMED==1) %>% 
+  group_by(PATNO) %>% arrange(STARTDT) %>% summarize(STARTDT=STARTDT[1]) %>% ungroup %>% select(PATNO,STARTDT) %>% mutate(Type="Med") %>% 
+  left_join(sig %>% filter(EVENT_ID=="ST") %>%  
+  mutate(STARTDT=convert_monthyear_num(ORIG_ENTRY)) %>% select(PATNO,STARTDT),by="PATNO") %>% 
+  mutate(diff=STARTDT.y-STARTDT.x) %>% 
+  left_join(subject_characteristics,by="PATNO") %>% 
+  filter(ENROLL_CAT=="PD") %>% 
+  ggplot(aes(x=diff)) +
+  geom_histogram(bins=100) + ggtitle("Difference time ST measurement and first DISMED==1 medication") +
+  theme_krijthe_gray(base_size = 6)
+
+# bind_rows(sig %>% filter(EVENT_ID=="ST") %>%  
+#   mutate(STARTDT=convert_monthyear_num(ORIG_ENTRY)) %>% select(PATNO,STARTDT) %>% mutate(Type="ST"),
+# 
+# conmed %>% filter(LEDD!=0.0) %>% arrange(STARTDT) %>% select(PATNO,STARTDT) %>% mutate(Type="Med")
+# ) %>% 
+#   left_join(subject_characteristics,by="PATNO") %>% 
+#   filter(ENROLL_CAT=="PD") %>% 
+#   ggplot(aes(x=STARTDT,y=factor(PATNO),color=Type)) +
+#   geom_point(alpha=1,size=0.5) +
+#   theme(axis.text.y = element_blank(),panel.grid.major.y = element_line(size=0.02,color="black"))
+```
+
+## Medication LEDD
+```{r}
+# df_usage <- ledds %>% 
+#   mutate(Levo=LEDD>0.0) %>% 
+#   filter(EVENT_ID %in% c("BL","V02","V04","V05","V06")) %>% 
+#   select(PATNO,EVENT_ID,Levo) %>% 
+#   spread(EVENT_ID,Levo)
+
+df_usage_cont <- ledds %>% 
+  mutate(Levo=LEDD) %>% 
+  mutate(Levo=round(Levo/100)*100) %>% 
+  mutate(Levo=ifelse(Levo>500,500,Levo)) %>% 
+  filter(EVENT_ID %in% c("BL","V02","V04","V05","V06")) %>% 
+  select(PATNO,EVENT_ID,Levo) %>% 
+  spread(EVENT_ID,Levo)
+#df_usage_cont  
+
+#df_usage_long
+
+df_usage_cont_long <-
+  ledds %>% 
+  mutate(Levo=LEDD) %>% 
+  filter(EVENT_ID %in% c("BL","V02","V04","V05","V06")) %>% 
+  select(PATNO,EVENT_ID,Levo) %>% 
+  arrange(PATNO,EVENT_ID) %>% 
+  complete(PATNO,EVENT_ID) %>% 
+  group_by(PATNO) %>% 
+  mutate(Levo_prev=lag(Levo)) %>% 
+  mutate(Levo_next=lead(Levo)) %>% 
+  ungroup
+
+df_usage_cont %>% 
+  gather("EVENT","Value",-PATNO) %>% 
+  ggplot(aes(x=Value)) + 
+  geom_histogram(bins=50)
+
+```
+
+```{r, fig.cap="The month the measurement should have taken place vs. the actual time the measurement was done."}
+df_repeated %>% 
+  left_join(df_constant, by="PATNO") %>% 
+  filter(EVENT_ID %in% events) %>% 
+  filter(Group=="PD") %>% 
+  ggplot(aes(x=Time,y=Year)) +geom_point() +theme_krijthe_gray() +
+  scale_x_continuous(breaks=seq(0,6,by=1))
+```
+
+# Number of samples
+```{r}
+df_repeated %>% 
+  left_join(df_constant, by="PATNO") %>% 
+  filter(EVENT_ID %in% events) %>% 
+  filter(Group=="PD") %>% 
+  select(-Time) %>% 
+  select(-starts_with("PC"),"PC1_Comp.1","PC1_Comp.2","PC1_Comp.3") %>% 
+  filter(!is.na(Year)) %>% 
+  gather(Measurement,Value,-PATNO,-EVENT_ID,-Year,-Date) %>% 
+  group_by(Year,Measurement) %>% 
+  summarize(Observations=sum(!is.na(Value))) %>% 
+  ggplot(aes(x=Year,y=Observations,fill=Measurement)) +
+  geom_bar(stat = "identity") +
+  facet_wrap(~Measurement,ncol=3) +
+  theme(legend.position="none") +
+  scale_x_continuous(breaks=0:6)
+```
+
+# Trajectories and average trajectories
+```{r average-trajectories, fig.height=4, fig.width=2}
+df_repeated %>% 
+  left_join(df_constant, by="PATNO") %>% 
+  filter(EVENT_ID %in% events) %>% 
+  filter(Group=="PD") %>% 
+  select(PATNO,Time,MDS_UPDRS_I,MDS_UPDRS_II, MDS_UPDRS_III_other,MDS_UPDRS_III_off,MoCA) %>% 
+  gather("Measurement","Value",-PATNO,-Time) %>% 
+  filter(!is.na(Value)) %>% 
+  ggplot(aes(x=Time,y=Value)) +
+  geom_line(aes(group=PATNO),alpha=0.1) +
+  geom_smooth(color="red") +
+  facet_wrap(~Measurement,ncol=2,scales="free_y") +
+  theme(legend.position="none")
+```
+
+```{r}
+modelused <- function(.x){lm(Value~Time,data=.x)}
+
+df_repeated %>% 
+  gather("Outcome","Value",-PATNO,-EVENT_ID,-Time,-Date,-Year) %>% 
+  left_join(df_constant,by="PATNO") %>% 
+  filter(Group=="PD") %>% 
+  group_by(Outcome) %>% 
+  nest() %>% 
+  mutate(model=map(data,modelused)) %>% 
+  mutate(prop=map(model,glance)) %>% 
+  unnest(prop) %>% 
+  select(-data,-model) %>% 
+  kable(caption="Regression of outcomes on the Month variable")
+```
+
+```{r example-trajectories}
+df_repeated %>% 
+  #left_join(ledds, by=c("PATNO","EVENT_ID")) %>%  
+  select(PATNO,Time,starts_with("MDS"),MoCA,LEDD) %>% 
+  gather(Outcome,Value,-PATNO,-Time,-LEDD) %>% 
+  na.omit %>% 
+  {filter(., PATNO %in% sample(unique(.$PATNO),5))} %>% 
+  ggplot(aes(x=Time,y=Value,group=PATNO,color=LEDD>0)) +
+  geom_line(alpha=0.7) +
+  geom_point() +
+  facet_wrap(~Outcome,ncol=3)
+```
+
+Patterns around the start of therapy
+```{r}
+ledds_start <- df_repeated %>% 
+  filter(PDMEDYN) %>% arrange(Time) %>% 
+  group_by(PATNO) %>% 
+  slice(1) %>% 
+  ungroup %>% 
+  select(PATNO,Time_start=Time)
+
+df_repeated %>% 
+  left_join(ledds_start, by=c("PATNO")) %>%  
+  mutate(Time=Time-Time_start) %>% 
+  select(PATNO,Time, starts_with("MDS"),MoCA,LEDD,PDMEDYN) %>% 
+  gather(Outcome,Value,-PATNO,-Time,-LEDD,-PDMEDYN) %>% 
+  na.omit %>% 
+  #{filter(., PATNO %in% sample(unique(.$PATNO),5))} %>% 
+  #filter(LEDD==0) %>% 
+  ggplot(aes(x=Time,y=Value,group=PATNO,color=PDMEDYN)) +
+  geom_line(alpha=0.1) +
+  geom_point(alpha=0.1) +
+  facet_wrap(~Outcome,ncol=3) +
+  coord_cartesian(xlim=c(-0.5,0.5))
+  
+```
+
+```{r}
+# Might be useful at some point
+df_repeated_wide <- df_repeated %>% 
+  filter(EVENT_ID %in% c("BL","V06")) %>% 
+  gather("Measurement","Value",-PATNO,-EVENT_ID) %>% 
+  unite("Var",EVENT_ID,Measurement) %>% 
+  distinct(PATNO,Var,.keep_all = TRUE) %>%
+  spread(Var,Value)
+```
+
+```{r}
+save(df_repeated, df_constant, file="data/causal-ppmi.RData")
+```
+
