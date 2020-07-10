@@ -48,42 +48,54 @@ df_l_onldopa <- df_last %>%
   filter(!(id %in% pats_stopped_onldopa)) %>%
   select(-starts_with("LEDD"))
 
+insert_nas <- function(x,y) {
+  ins <- ifelse(is.logical(x),NA, ifelse(is.double(x),NA_real_,NA_integer_))
+  if_else(y,x,ins)
+}
+
+df_l_onldopa_with_na <- 
+  df_l_onldopa %>% 
+  mutate_at(vars(ends_with("_year2")),~insert_nas(.,df_l_onldopa$ONLDOPA_year2)) %>% 
+  mutate_at(vars(ends_with("_year3")),~insert_nas(.,df_l_onldopa$ONLDOPA_year3)) %>% 
+  mutate_at(vars(ends_with("_year4")),~insert_nas(.,df_l_onldopa$ONLDOPA_year4))
+
+set.seed(1210)
 length(pats_stopped_onldopa)
 nrow(df_l_onldopa)
 
-print(system.time(full_results_onldopa <- run_once(df_v_onldopa, df_c_onldopa, df_l_onldopa, msms_all, msms_ipw)))
-bs_results_onldopa <- run_bootstrap(df_v_onldopa, df_c_onldopa, df_l_onldopa, msms_all, msms_ipw, repeats=n_repeats)
+print(system.time(full_results_onldopa_all <- run_once(df_v_onldopa, df_c_onldopa, df_l_onldopa, msms_all, msms_ipw)))
+bs_results_onldopa_all <- run_bootstrap(df_v_onldopa, df_c_onldopa, df_l_onldopa, msms_all, msms_ipw, repeats=n_repeats)
 save.image(out_path)
 
-### Started
+### On medication
 
-pats_started_onldopa <-
-  df_varying %>%
-  mutate(treatment=ONLDOPA) %>%
-  group_by(id) %>%
-  filter(treatment,!lag(treatment)) %>%
-  ungroup %>%
-  .$id %>% unique
+# pats_started_onldopa <-
+#   df_varying %>%
+#   mutate(treatment=ONLDOPA) %>%
+#   group_by(id) %>%
+#   filter(treatment,!lag(treatment)) %>%
+#   ungroup %>%
+#   .$id %>% unique
 
-length(pats_started_onldopa)
+#length(pats_started_onldopa)
 
 df_v_onldopa <- df_varying %>%
-  filter(id %in% pats_started_onldopa) %>%
   filter(!(id %in% c(pats_stopped_onldopa))) %>%
   mutate(treatment=as.integer(ONLDOPA)) %>%
   mutate(MDS_UPDRS_III_off=if_else(time==0,MDS_UPDRS_III_other,as.numeric(MDS_UPDRS_III_off)))
 df_c_onldopa <- df_constant %>%
-  filter(id %in% pats_started_onldopa) %>%
   filter(!(id %in% c(pats_stopped_onldopa)))  %>%
   left_join(df_last %>% select(id,starts_with("LEDD")),by="id")
 df_l_onldopa <- df_last %>%
-  filter(id %in% pats_started_onldopa) %>%
   filter(!(id %in% c(pats_stopped_onldopa))) %>%
   select(-starts_with("LEDD"))
-nrow(df_l_onldopa)
 
-system.time(full_results_onldopa_started <- run_once(df_v_onldopa, df_c_onldopa, df_l_onldopa, msms_all_starters, msms_ipw_starters))
-bs_results_onldopa_started <- run_bootstrap(df_v_onldopa, df_c_onldopa, df_l_onldopa, msms_all_starters, msms_ipw_starters, repeats=n_repeats)
+
+
+set.seed(1210)
+nrow(df_l_onldopa)
+system.time(full_results_onldopa_medication <- run_once(df_v_onldopa, df_c_onldopa, df_l_onldopa_with_na, msms_all, msms_ipw))
+bs_results_onldopa_medication <- run_bootstrap(df_v_onldopa, df_c_onldopa, df_l_onldopa_with_na, msms_all, msms_ipw, repeats=n_repeats)
 save.image(out_path)
 
 
@@ -101,24 +113,22 @@ length(pats_levoonly)
 # Remove those who stopped:
 df_v_onldopa <- df_varying %>%
   filter(id %in% pats_levoonly) %>%
-  filter(id %in% pats_started_onldopa) %>%
   filter(!(id %in% c(pats_stopped_onldopa))) %>%
   mutate(treatment=as.integer(ONLDOPA)) %>%
   mutate(MDS_UPDRS_III_off=if_else(time==0,MDS_UPDRS_III_other,as.numeric(MDS_UPDRS_III_off)))
 df_c_onldopa <- df_constant %>%
   filter(id %in% pats_levoonly) %>%
-  filter(id %in% pats_started_onldopa) %>%
   filter(!(id %in% c(pats_stopped_onldopa))) %>%
   left_join(df_last %>% select(id,starts_with("LEDD")),by="id")
 df_l_onldopa <- df_last %>%
   filter(id %in% pats_levoonly) %>%
-  filter(id %in% pats_started_onldopa) %>%
   filter(!(id %in% c(pats_stopped_onldopa))) %>%
   select(-starts_with("LEDD"))
 
 df_l_onldopa$id %>% unique %>% length %>% print
 
+set.seed(1210)
 
-system.time(full_results_onldopa_levoonly<- run_once(df_v_onldopa, df_c_onldopa, df_l_onldopa, msms_all_starters, msms_ipw_starters))
-bs_results_onldopa_levoonly <- run_bootstrap(df_v_onldopa, df_c_onldopa, df_l_onldopa, msms_all_starters, msms_ipw_starters, repeats=n_repeats)
+print(system.time(full_results_onldopa_levoonly<- run_once(df_v_onldopa, df_c_onldopa, df_l_onldopa_with_na, msms_all, msms_ipw)))
+bs_results_onldopa_levoonly <- run_bootstrap(df_v_onldopa, df_c_onldopa, df_l_onldopa_with_na, msms_all, msms_ipw, repeats=n_repeats)
 save.image(out_path)

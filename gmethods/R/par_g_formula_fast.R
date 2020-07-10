@@ -40,30 +40,6 @@ par_g_formula_fast <- function(data_varying, msm, models, data_constant=NULL, da
 
   treats <- treatment_assignment
 
-  if (T==4) {
-    treats <- list(
-      data.frame(time=1:4,treatment=c(0,0,0,0)),
-      data.frame(time=1:4,treatment=c(0,0,0,1)),
-      data.frame(time=1:4,treatment=c(0,0,1,1)),
-      data.frame(time=1:4,treatment=c(0,1,1,1)),
-      data.frame(time=1:4,treatment=c(1,1,1,1))
-    ) }
-  else {
-    treats <- list(
-      data.frame(time=1:8,treatment=c(0,0,0,0,0,0,0,0)),
-      data.frame(time=1:8,treatment=c(0,0,0,0,0,0,0,1)),
-      data.frame(time=1:8,treatment=c(0,0,0,0,0,0,1,1)),
-      data.frame(time=1:8,treatment=c(0,0,0,0,0,1,1,1)),
-      data.frame(time=1:8,treatment=c(0,0,0,0,1,1,1,1)),
-      data.frame(time=1:8,treatment=c(0,0,0,1,1,1,1,1)),
-      data.frame(time=1:8,treatment=c(0,0,1,1,1,1,1,1)),
-      data.frame(time=1:8,treatment=c(0,1,1,1,1,1,1,1)),
-      data.frame(time=1:8,treatment=c(1,1,1,1,1,1,1,1))
-    )
-  }
-
-
-
   sim <- function(treat,df_start) {
 
     df_treatment <- bind_rows(rep(list(treat),each=length(unique(df_start$ido)))) %>% mutate(ido=rep(unique(df_start$ido),each=nrow(treat)))

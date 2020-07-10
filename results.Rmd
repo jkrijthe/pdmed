@@ -17,14 +17,16 @@ library(tidyverse)
 library(broom)
 library(knitr)
 library(extrafont)
+library(ggstar)
 extrafont::loadfonts(quiet = TRUE)
 ```
+
 
 ```{r}
 if (file.exists("data/results-summary.RData")) {
   load("data/results-summary.RData")
 } else {
-  load("data/gmethods_ppmi_PDMEDYN.RData")
+  load("data/gmethods_ppmi_pdmedyn.RData")
   load("data/gmethods_ppmi_onldopa.RData")
   
   change_names <- function(df) { df %>% 
@@ -33,25 +35,57 @@ if (file.exists("data/results-summary.RData")) {
   summ_stats <- function(df) { df %>% group_by(Outcome,Model,Year,form,term) %>%
     summarize(est=mean(estimate,na.rm=TRUE),sd=sd(estimate,na.rm=TRUE),n=n()) %>% ungroup }
   
-  bs_pdmedyn_all <- bs_results_PDMEDYN  %>% change_names %>% summ_stats
-  bs_pdmedyn_started <-  bs_results_PDMEDYN_started  %>% change_names %>% summ_stats
-  bs_onldopa_all <- bs_results_onldopa  %>% change_names %>% summ_stats
-  bs_onldopa_started <-  bs_results_onldopa_started  %>% change_names %>% summ_stats
+  bs_pdmedyn_all <- bs_results_PDMEDYN_all  %>% change_names %>% summ_stats
+  bs_pdmedyn_started <-  bs_results_PDMEDYN_medication  %>% change_names %>% summ_stats
+  bs_onldopa_all <- bs_results_onldopa_all  %>% change_names %>% summ_stats
+  bs_onldopa_started <-  bs_results_onldopa_medication  %>% change_names %>% summ_stats
   bs_onldopa_levoonly <-  bs_results_onldopa_levoonly  %>% change_names %>% summ_stats
   
- 
   
-  full_results_PDMEDYN <- full_results_PDMEDYN %>% change_names
-  full_results_PDMEDYN_started <- full_results_PDMEDYN_started %>% change_names
+  full_results_PDMEDYN <- full_results_PDMEDYN_all %>% change_names
+  full_results_PDMEDYN_started <- full_results_PDMEDYN_medication %>% change_names
+  full_results_onldopa <- full_results_onldopa_all %>% change_names
+  full_results_onldopa_started <- full_results_onldopa_medication %>% change_names
   full_results_onldopa_levoonly <- full_results_onldopa_levoonly %>% change_names
-  full_results_onldopa_started <- full_results_onldopa_started %>% change_names
-  full_results_onldopa <- full_results_onldopa %>% change_names
   
-  save(full_results_PDMEDYN, full_results_PDMEDYN_started, 
-       bs_pdmedyn_all, bs_pdmedyn_started,
+  
+  bs_pdmedyn_extra <- bs_pdmedyn_started
+  full_results_PDMEDYN_extra <- full_results_PDMEDYN_started
+  load("data/gmethods_ppmi_pdmedyn_restricted.RData")
+
+  bs_pdmedyn_started <- bind_rows(
+    bs_results_PDMEDYN_y2 %>% filter(str_detect(outcome,"_year2")),
+    bs_results_PDMEDYN_y3 %>% filter(str_detect(outcome,"_year3")),
+    bs_results_PDMEDYN_y4 %>% filter(str_detect(outcome,"_year4"))
+  ) %>% change_names %>% summ_stats
+  
+  full_results_PDMEDYN_started <- bind_rows(
+    full_results_PDMEDYN_y2 %>% filter(str_detect(outcome,"_year2")),
+    full_results_PDMEDYN_y3 %>% filter(str_detect(outcome,"_year3")),
+    full_results_PDMEDYN_y4 %>% filter(str_detect(outcome,"_year4"))
+  )%>% change_names
+  
+  load("data/gmethods_ppmi_onldopa_restricted.RData")
+  
+  bs_onldopa_levoonly <- bind_rows(
+    bs_results_onldopa_levoonly_y2 %>% filter(str_detect(outcome,"_year2")),
+    bs_results_onldopa_levoonly_y3 %>% filter(str_detect(outcome,"_year3")),
+    bs_results_onldopa_levoonly_y4 %>% filter(str_detect(outcome,"_year4"))
+  ) %>% change_names %>% summ_stats
+  
+  full_results_onldopa_levoonly <- bind_rows(
+    full_results_onldopa_levoonly_y4 %>% filter(str_detect(outcome,"_year2")),
+    full_results_onldopa_levoonly_y3 %>% filter(str_detect(outcome,"_year3")),
+    full_results_onldopa_levoonly_y4 %>% filter(str_detect(outcome,"_year4"))
+  )%>% change_names
+  
+  
+  
+  save(full_results_PDMEDYN, full_results_PDMEDYN_started, full_results_PDMEDYN_extra, 
+       bs_pdmedyn_all, bs_pdmedyn_started, bs_pdmedyn_extra,
        full_results_onldopa, full_results_onldopa_started, full_results_onldopa_levoonly,  
        bs_onldopa_all, bs_onldopa_levoonly, bs_onldopa_started,
-       pats_not_started_PDMEDYN, pats_stopped_PDMEDYN, pats_levoonly, pats_started_onldopa, pats_stopped_onldopa,
+       pats_stopped_PDMEDYN, pats_levoonly, pats_stopped_onldopa,
        file="data/results-summary.RData")
 }
 df_varying <- readRDS("data/df_varying.rds")
@@ -90,17 +124,19 @@ lg_in_table <- function(x) {
   sprintf("%1.2f",mean(x,na.rm=TRUE))
 }
 
+
 df_varying %>% 
-  filter(!(id %in% c(pats_not_started_PDMEDYN, pats_stopped_PDMEDYN))) %>% 
+  filter(!(id %in% c(pats_stopped_PDMEDYN))) %>% 
   left_join(df_constant,by="id") %>% 
   left_join(treat_length,by="id") %>% 
+  filter(!is.na(years_treatment)) %>% 
   filter(years_treatment>0) %>% 
   filter(time==0) %>% 
   left_join(df_last %>% select(id,starts_with("LEDD")), by="id") %>% 
   #group_by(years_treatment) %>% 
   summarize(n=n(),
             `Age (Years)`=dbl_in_table(Age), 
-            `Gender (% Male)`=lgperce_in_table(Sex=="Male"),
+            `Gender (% Men)`=lgperce_in_table(Sex=="Male"),
             `Education (Years)`=dbl_in_table(Education),
             `Disease Duration (Years)`=dbl_in_table(Duration),
             `MDS-UPDRS I`=dbl_in_table(MDS_UPDRS_I),
@@ -116,7 +152,7 @@ df_varying %>%
             `Treatment 0.5 years`=sum(years_treatment==0.5,na.rm=TRUE),
             `Treatment 1 year`=sum(years_treatment==1,na.rm=TRUE),
             `Treatment 1.5 years`=sum(years_treatment==1.5,na.rm=TRUE),
-            `Treatment 2 years`=sum(years_treatment==2,na.rm=TRUE)
+            `Treatment 2 years`=sum(years_treatment==2,na.rm=TRUE),
             #Censored=sum(is.na(years_treatment),na.rm=TRUE),
             ) %>% 
   gather("Variable","Value") %>% 
@@ -129,8 +165,8 @@ df_varying %>%
 ```
 
 ## Disease Progression
-```{r dpi=1200, fig.width = 6, fig.cap='Figure 1: Descriptive MDS-UPDRS III Progression. Average MDS-UPDRS III progression in the first 4 years, categorized by number of years of treatment in the first 2 years of the disease. Only "Off" measurements are shown. These included semi-annual measurements until treatment initiation and annual measurements after treatment initiation (because only the annual measurements were specifically defined as "Off" state in PPMI).'}
-readRDS("data/df_varying_all.rds") %>%  
+```{r dpi=1200, fig.width = 6, fig.cap='Figure 1: Average MDS-UPDRS III in OFF-state scores in the first four years, categorized by number of treatment years in the first two years of follow-up. Scores are obtained during biannual measurements until treatment initiation and annual measurements after treatment initiation.'}
+df_plot <- readRDS("data/df_varying_all.rds") %>%  
   mutate(id=as.character(PATNO)) %>% 
   filter(time<9) %>% 
   #filter(!(id %in% my_ids)) %>% 
@@ -143,9 +179,19 @@ readRDS("data/df_varying_all.rds") %>%
   na.omit %>% 
   #filter(!(time %in% c(5,7))) %>%
   filter(!((time%%2==1) & time>(2-years_treatment)*2)) %>% 
-  ggplot(aes(x=time*6,y=m,color=factor(years_treatment))) +geom_point() + geom_line() +
-  scale_x_continuous(breaks =seq(0,48, by=6),expand=expand_scale(mult = 0.03, add = 0)) + theme_light()  + xlab("Month") + ylab("Average MDS-UPDRS Part III Score") + scale_color_viridis_d(name="Number of years of treatment") +
-    theme(text=element_text(family="Lato")) 
+  mutate(start=factor(2-years_treatment,levels=c(0,0.5,1,1.5,2),labels=c("t = 0","t = 0.5","t = 1","t = 1.5","t \u2265 2"))) %>% 
+  mutate(moment=(time==2*(2-years_treatment)))
+
+ggout <- df_plot %>% 
+  ggplot(aes(x=time*6, y=m, group=factor(start), fill=factor(start), color=factor(start))) + 
+  geom_point() + geom_line() + 
+  geom_star(size=2, data=df_plot %>% filter(moment==TRUE, years_treatment!=0) %>% mutate(m=m-0.8+1.6*(years_treatment!=2)), inherit.aes = TRUE,show.legend = FALSE) + 
+  scale_x_continuous(breaks =seq(0,48, by=6),expand=expand_scale(mult = 0.03, add = 0)) + theme_light()  + xlab("Month") + ylab("Average MDS-UPDRS Part III Score") + scale_color_viridis_d(name="Start PD medication") + scale_fill_viridis_d(name="Start PD medication") +
+    theme(text=element_text(family="Lato"))
+cairo_ps("1.eps", width=6, height = 0.75*6)
+print(ggout)
+dev.off()
+print(ggout)
 ```
 
 ```{r dpi=1200, fig.width = 6, fig.cap="Mean progression for the different treatment duration groups", eval=FALSE}
@@ -160,7 +206,7 @@ readRDS("data/df_varying_all.rds") %>%
   select(time,years_treatment,m) %>% 
   na.omit %>% 
   ggplot(aes(x=time*6,y=m,color=factor(years_treatment))) +geom_point() + geom_line() +
-  scale_x_continuous(breaks =seq(0,48, by=6),expand=expand_scale(mult = 0.03, add = 0)) + theme_light()  + xlab("Month") + ylab("Average MDS-UPDRS Part 1 Score") + scale_color_viridis_d(name="Number of years of treatment") +theme(text=element_text(family="Lato"))
+  scale_x_continuous(breaks =seq(0,48, by=6),expand=expand_scale(mult = 0.03, add = 0)) + theme_light()  + xlab("Month") + ylab("Average MDS-UPDRS Part I Score") + scale_color_viridis_d(name="Number of years of treatment") +theme(text=element_text(family="Lato"))
 ```
 
 
@@ -175,7 +221,7 @@ process_results <- function(.x) {
 
 
 # Confounding adjustment
-```{r fig.asp=0.3, dpi=1200, fig.width = 8, fig.cap="Figure 2: Effect of an additional year of PD medication therapy on outcomes after two years and considering all observations, estimated using different methods. For MDS-UPDRS, higher scores correspond to worse outcome, for Modified Schwab & England, lower scores correspond to worse outcomes. Adjusting for more of the (time-varying) confounding removes more of the spurious negative effects due to worse-off patients being more likely to start therapy early."}
+```{r fig.asp=0.3, dpi=1200, fig.width = 8, fig.cap="Figure 2: Effect of an additional year of PD medication therapy on outcomes after two years in the subpopulation of patients that had started therapy at the time of measurement, estimated using different methods. For MDS-UPDRS, higher scores correspond to worse outcome, for Modified Schwab & England, lower scores correspond to worse outcomes. Adjusting for more of the (time-varying) confounding removes more of the spurious negative effects due to worse-off patients being more likely to start therapy early."}
 plot_bootstrap <- function(df_res, df_boot) {
   df_boot_all <- df_boot %>% 
     mutate(Outcome=case_when(
@@ -224,15 +270,20 @@ plot_bootstrap <- function(df_res, df_boot) {
     NULL#coord_cartesian(xlim=c(-10,10))
 }
 
-plot_bootstrap(
+ggout <- plot_bootstrap(
   full_results_PDMEDYN_started %>% process_results %>% filter(Year==2, Outcome %in% c("MDS_UPDRS_I","MDS_UPDRS_III_off","MSEADLG")),
   bs_pdmedyn_started %>% process_results %>% filter(Year==2, Outcome %in% c("MDS_UPDRS_I","MDS_UPDRS_III_off","MSEADLG"))
 )
+
+cairo_ps("2.eps", width=8, height = 0.3*8)
+print(ggout)
+dev.off()
+print(ggout)
 ```
 
 # Main Outcomes
 
-```{r fig.asp=0.4, dpi=1200, fig.width = 6, fig.cap="Figure 3: Effect of one year of PD medication treatment during the first two years of follow-up. Effect on MDS-UPDRS Part III subscore measured at year 2, 3 and 4, for inverse probability of treatment weighting and the parametric g-formula. Only patients who started medication therapy within two years are included in the analysis."}
+```{r fig.asp=0.4, dpi=1200, fig.width = 6, fig.cap="Figure 3: Effect of one year of PD medication treatment during the first two years of follow-up. Effect on MDS-UPDRS Part III subscore measured at year 2, 3 and 4, for inverse probability of treatment weighting and the parametric g-formula. Only patients who have started medication therapy at the time of the outcome measurement are included in the analysis."}
 plot_bootstrap_compact <- function(df_res, df_boot) {
   df_res <- df_res %>% mutate(dataset=fct_inorder(dataset))
   df_boot <- df_boot %>% mutate(dataset=fct_inorder(dataset))
@@ -263,7 +314,7 @@ plot_bootstrap_compact <- function(df_res, df_boot) {
     filter(Outcome=="MDS-UPDRS Part III") %>% 
     left_join(df_boot_all,by = c("Outcome", "Model", "Year","dataset")) %>% 
     mutate(Model=fct_rev(fct_inorder(Model))) %>% 
-    ggplot(aes(x=fct_rev(Year),y=estimate,color=Model)) +
+    ggplot(aes(x=fct_rev(Year),y=estimate,color=Model,shape=Model)) +
     geom_hline(aes(yintercept=0))+
     #geom_point() +
     geom_pointrange(aes(ymin=estimate-2*sd,ymax=estimate+2*sd),position=position_dodge(.5)) +
@@ -275,13 +326,14 @@ plot_bootstrap_compact <- function(df_res, df_boot) {
           strip.background = element_rect(fill="white")) +
     xlab("Year") +ylab("") +
     facet_grid(Outcome~dataset,labeller = function(.x) {label_value(.x,multi_line = FALSE)}) +
+    #scale_color_viridis_d(option = "E",end=0.8) +
     theme(strip.placement = "outside") +
-    guides(color=guide_legend(reverse=TRUE,title=NULL)) +
+    guides(linetype=NULL, shape=guide_legend(reverse=TRUE,title=NULL), color=guide_legend(reverse=TRUE,title=NULL)) +
     #scale_color_viridis_d() +
     NULL#coord_cartesian(xlim=c(-10,10))
 }
 
-plot_bootstrap_compact(
+ggout <- plot_bootstrap_compact(
   bind_rows(full_results_PDMEDYN_started %>% process_results %>% mutate(dataset="PD Medication"), 
             full_results_onldopa_levoonly %>% process_results %>% mutate(dataset="Only Levodopa")) %>% 
     filter(Model %in% c("IPW_msms_adj","gformula_msms_adj"), str_detect(Outcome,"MDS_UPDRS")),
@@ -289,8 +341,14 @@ plot_bootstrap_compact(
             bs_onldopa_levoonly %>% process_results %>% mutate(dataset="Only Levodopa")) %>% 
     filter(Model %in% c("IPW_msms_adj","gformula_msms_adj"), str_detect(Outcome,"MDS_UPDRS"))
 ) + theme(strip.text.y = element_text(family="Lato",size=8) )
+
+cairo_ps("3.eps", width=6, height = 0.4*6)
+print(ggout)
+dev.off()
+print(ggout)
 ```
 
+In the table below: obs refers to the number of non-missing measurements used for the esitmation for the IPTW models, and to the number of simulated outcomes for the g-formula (4 treatment options times 100 simulations per patient for the year 2 outcomes and 5 treatment options times 100 simulations per patient for the other outcomes). 
 ```{r}
 calc_table <- function(df_res, df_boot) {
   df_res <- df_res %>% mutate(dataset=fct_inorder(dataset))
@@ -330,13 +388,13 @@ calc_table(
     filter(Model %in% c("IPW_msms_adj","gformula_msms_adj"), str_detect(Outcome,"MDS_UPDRS")),
   bind_rows(bs_pdmedyn_started %>% process_results %>% mutate(dataset="PD Medication")) %>% 
     filter(Model %in% c("IPW_msms_adj","gformula_msms_adj"), str_detect(Outcome,"MDS_UPDRS"))
-) %>% select(Model, Year, estimate, CI)  %>% kable(digits=2)
+) %>% select(Model, Year, estimate, CI, obs)  %>% kable(digits=2)
 ```
 
 
 # Auxiliary outcomes
 
-```{r dpi=1200, fig.width = 8, fig.asp=0.4, fig.cap="Figure 4: Effect of one year of PD medication treatment during the first two years of follow-up. Effect on auxiliary outcomes at year 2, 3 and 4 for inverse probability of treatment weighting. Only patients who started medication therapy within two years are included in the analysis."}
+```{r dpi=1200, fig.width = 8, fig.asp=0.4, fig.cap="Figure 4: Effect of one year of PD medication treatment during the first two years of follow-up. Effect on auxiliary outcomes at year 2, 3 and 4 for inverse probability of treatment weighting. Only patients who have started medication therapy at the time of the outcome measurement are included in the analysis."}
 plot_bootstrap_aux <- function(df_res, df_boot) {
   df_boot_all <- df_boot %>% 
     mutate(Outcome=case_when(
@@ -396,10 +454,15 @@ process_results_aux <- function(.x) {
 }
 
 
-plot_bootstrap_aux(
+ggout <- plot_bootstrap_aux(
   bind_rows(full_results_PDMEDYN_started %>% process_results_aux %>% mutate(dataset="PD Medication"), 
             full_results_onldopa_levoonly %>% process_results_aux %>% mutate(dataset="Levodopa Only")),
   bind_rows(bs_pdmedyn_started %>% process_results_aux %>% mutate(dataset="PD Medication"),
             bs_onldopa_levoonly %>% process_results_aux %>% mutate(dataset="Levodopa Only"))
 ) + ylab("Year")
+
+cairo_ps("4.eps", width=8, height = 0.4*8)
+print(ggout)
+dev.off()
+print(ggout)
 ```

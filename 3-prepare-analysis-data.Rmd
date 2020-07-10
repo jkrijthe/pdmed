@@ -147,13 +147,12 @@ df_repeated_a <- df_t %>%
 
 ## Imputation
 ```{r}
-vars_impute <- c("MDS_UPDRS_I","MDS_UPDRS_II","MDS_UPDRS_III_other","MSEADLG",df_repeated_a %>% names %>% str_subset("PC.*_"))
 
 df_varying <- df_repeated_a %>% 
   filter(Month %in% c(0,6,12,18,24,30,36,42,48,54,60)) %>%
   mutate(time=Month/6) %>% 
   arrange(id,time) %>% 
-  complete(id,time) %>% 
+  complete(id,time) %>% filter(is.na(LEDDnonzero))
   # group_by(id) %>% 
   # mutate_at(c("MDS_UPDRS_I","MDS_UPDRS_II","MDS_UPDRS_III_other","MSEADLG"),impute_middle,distance=1) %>% 
   # mutate_at(c("MoCA"),impute_middle,distance=2) %>% 
@@ -162,11 +161,13 @@ df_varying <- df_repeated_a %>%
   #filter(is.na(MDS_UPDRS_I),!is.na(lead(MDS_UPDRS_I)),!is.na(lag(MDS_UPDRS_I)))
   impute_linear_fast(vars_impute = vars_impute,distance=1) %>% 
   impute_linear_fast(c("MoCA"),distance=2) %>%
+  mutate(PDMEDYN=if_else(is.na(PDMEDYN) & !is.na(LEDDnonzero),LEDDnonzero,PDMEDYN)) %>% 
+  mutate(PDMEDYN=if_else(is.na(PDMEDYN) & ONLDOPA,TRUE,PDMEDYN)) %>% # if on ldopa, then on pdmed
+  mutate(ONLDOPA=if_else(is.na(ONLDOPA) & !PDMEDYN,FALSE,ONLDOPA)) %>% # if not on pdmed then no ldopa
   impute_treatment(c("ONLDOPA","PDMEDYN")) %>% 
   impute_treatment_type(c("PD_MED_USE")) %>% 
   mutate(PDMEDYN=if_else(is.na(PDMEDYN) & ONLDOPA,TRUE,PDMEDYN)) %>% # if on ldopa, then on pdmed
   mutate(ONLDOPA=if_else(is.na(ONLDOPA) & !PDMEDYN,FALSE,ONLDOPA)) %>% # if not on pdmed then no ldopa
-  mutate(PDMEDYN=if_else(is.na(PDMEDYN) & !is.na(LEDDnonzero),LEDDnonzero,PDMEDYN)) %>% 
   mutate(MoCA=if_else(Month %in% c(6,18,30,42,54),99,MoCA)) %>%
   mutate(.,missing=determine_missing(.,c("MDS_UPDRS_I","MDS_UPDRS_II","MDS_UPDRS_III_other","MSEADLG","MoCA","PDMEDYN","ONLDOPA"))) %>% 
   mutate(MoCA=if_else(Month %in% c(6,18,30,42,54),NA_real_,MoCA)) %>% 
@@ -195,10 +196,10 @@ df_last_tv <- df_varying %>%
     filter(Year %in% c(2,3,4)) %>% 
     mutate(Year=factor(Year)) %>% 
     select(-EVENT_ID,-PATNO,-Time,-Date) %>% 
-    select(id,Year,starts_with("MDS"),MoCA,MSEADLG,QUIP,QUIP8,QUIPany,NP4WDYSK,NP4OFF,LEDD) %>% 
+    select(id,Year,starts_with("MDS"),MoCA,MSEADLG,QUIP,QUIP8,QUIPany,NP4WDYSK,NP4OFF,LEDD,PDMEDYN,ONLDOPA) %>% 
     as.data.frame %>% 
     reshape(idvar = "id", timevar="Year", direction="wide", sep="_year")  %>%
-  select(id,starts_with("MDS_"),starts_with("MoCA"),starts_with("MSEADLG"),starts_with("QUIP"),starts_with("NP4WDYSK"),starts_with("NP4OFF"),starts_with("LEDD"))
+  select(id,starts_with("MDS_"),starts_with("MoCA"),starts_with("MSEADLG"),starts_with("QUIP"),starts_with("NP4WDYSK"),starts_with("NP4OFF"),starts_with("LEDD"),starts_with("PDMEDYN"),starts_with("ONLDOPA"))
 
 # Subjects that are censored but might not need to be
 # df_varying %>% filter(censored,!missing) %>% count(id,sort=TRUE)

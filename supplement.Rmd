@@ -17,18 +17,19 @@ library(knitr)
 
 # Methodology 
 
-```{tikz dag,fig.ext="png",fig.width=3, fig.cap="Figure 1S: Directed Acyclic Graph of an idealized version of our causal model. L represents the set of covariates and outcomes (MDS-UPDRS scores, MoCA, MSE-ADL, etc.) and T represents the treatment indicator. In addition, we assume there are background variables (age, sex, education, time since diagnosis) that may influence both treatment decisions and the covariates in L, and the full history of treatment decisions may influence the current disease state (not shown)."}
+```{tikz dag,fig.ext="png",fig.width=3, fig.cap="Figure 1S: Directed Acyclic Graph of an idealized version of our causal model. L represents the set of covariates and outcomes (MDS-UPDRS scores, MoCA, MSE-ADL, etc.) and T represents the treatment indicator. In addition, we assume there are background variables (age, sex, education, time since diagnosis) that may influence both treatment decisions and the covariates in L, and the full history of treatment decisions may influence the current disease state (not shown, except for the last node)."}
 \usetikzlibrary{positioning,shapes.geometric}
 
 \begin{tikzpicture}[%
     ->,
     shorten >=2pt,
     >=stealth,
-    node distance=1cm,
+    node distance=1cm,thick,
     noname/.style={%
       circle,
-      minimum width=5em,
-      minimum height=3em,
+      thick,
+      minimum width=2em,
+      minimum height=2em,
       draw
     }
   ]
@@ -56,8 +57,10 @@ library(knitr)
           (6) edge                   node {} (2)
 (7) edge                   node {} (3)
 (8) edge                   node {} (4)
-(9) edge                   node {} (5);
-         % (6) edge [bend right=120pt] node {} (5);
+(9) edge                   node {} (5)
+(6) edge [looseness=2.1, out=-30, in=-20] node {} (5)
+(7) edge [looseness=1.9, out=-40, in=-30] node {} (5)
+(8) edge [looseness=1.8, out=-50, in=-40] node {} (5);
   \end{tikzpicture}
 ```
 
@@ -69,8 +72,9 @@ For censoring in the IPTW models, we use the same procedure as for the treatment
 In the marginal structural model, we use a linear model of the length of treatment and, in most analyses, adjust for the outcome measured at baseline (indicated here are "Baseline Adjusted"). In this supplement, we also report results when adjusting for all baseline variables, not just the particular outcome of interest (indicated by "Baseline Adjusted All"), and with and without adjustment for censoring using inverse probability of censoring weighting (indicated by "Censoring"). We also show results when adjusting for outcome at baseline and the Levodopa Equivalent Daily Dose of the patient at the time of the outcome measurement (indicated using "LEDD"). While this latter model may seem to be sensible to adjust for the long duration response of medication on the measurement, the causal interpretation of these results is not straightforward, since LEDD is likely influenced by the treatment decision whose effect we are trying to estimate. 
 Finally, we use a linear regression model both for the continuous as well as for the dichotomous outcomes, which allows for both a uniform implementation of the models and presentation of the results. For the dichotomous outcomes, a logistic regression model would have been a sensible alternative choice.
 
-For the parametric g-formula, we use linear regression models. We allow for observations earlier than the current visit to influence the prediction of the next observation. These links are not shown in the causal model, but are reflected in the fitted model which contain the observed values of the covariates at all available previous time-points. The variables that are included are treatment status, age, sex, years of education, disease duration, MDS-UPDRS part scores, MSE-ADL and, for yearly measurements, MoCA score. To take the correlations between the time-varying covariates at each time point into account, we iteratively add the variables for the current time-point to the models, in the order just mentioned. For instance, the model to generate the current MDS UPDRS part I score only contains variables from the previous visit, while the model for the current part II score includes the current part I score, and the model for the part III score includes the current part I and part II scores. Using these models, for each patient, for each of the 5 possible treatment decisions, we simulate 100 trajectories for the covariates and outcomes, which, in the main analysis leads to (416*5*100=208000) trajectories. We use the same marginal structural model on these simulated outcomes as used in the IPTW method to generate the final estimates.
+For the parametric g-formula, we use linear regression models. We allow for treatments earlier than the current visit to influence the prediction of the next observation. These links are not shown in the causal model, but are reflected in the fitted model which contain the observed values of the covariates at the previous available time-point (and the baseline measurements, for the predictions at the final time-point) and all available previous treatment decisions. The variables that are included are treatment status, age, sex, years of education, disease duration, MDS-UPDRS part scores, MSE-ADL and, for yearly measurements, MoCA score. To take the correlations between the time-varying covariates at each time point into account, we iteratively add the variables for the current time-point to the models, in the order just mentioned. For instance, the model to generate the current MDS-UPDRS part I score only contains variables from the previous visit, while the model for the current part II score includes the current part I score, and the model for the part III score includes the current part I and part II scores. Using these models, for each patient from the subpopulation of interest, for each of the 5 possible treatment decisions, we simulate 100 trajectories for the covariates and outcomes, which, in the analysis where we consider 5 options for the treatment length and the whole sample at baseline, gives (416*5*100=208000) trajectories. We use the same marginal structural model on these simulated outcomes as used in the IPTW method to generate the final estimates.
 
+# Supplementary Results
 
 ```{r load-data}
 load("data/results-summary.RData")
@@ -79,69 +83,43 @@ df_constant <- readRDS("data/df_constant.rds")
 df_last <- readRDS("data/df_last.rds")
 ```
 
-# PD Medication Treatment
-
 ```{r}
-treat_length <- df_varying %>% 
-  left_join(df_constant,by="id") %>% 
-  group_by(id) %>% 
-  summarize(years_treatment=sum(PDMEDYN)/2)
+# treat_length <- df_varying %>% 
+#   left_join(df_constant,by="id") %>% 
+#   group_by(id) %>% 
+#   summarize(years_treatment=sum(PDMEDYN)/2)
 
-df_varying %>% 
-  filter(!(id %in% pats_stopped_PDMEDYN)) %>% 
-  left_join(df_constant,by="id") %>% 
-  left_join(treat_length,by="id") %>% 
-  filter(time==4) %>% 
-  group_by(years_treatment) %>% 
-  summarize(mean(MDS_UPDRS_III_off,na.rm=TRUE),sd(MDS_UPDRS_III_off,na.rm=TRUE),mean(MDS_UPDRS_III_other),sd(MDS_UPDRS_III_other),n(),sum(is.na(MDS_UPDRS_III_off)),sum(!is.na(MDS_UPDRS_III_off))) %>% 
-  ungroup %>% View()
-
-
-df_varying %>% 
-  filter(!(id %in% pats_stopped_PDMEDYN)) %>% 
-  left_join(df_constant,by="id") %>% 
-  left_join(treat_length,by="id") %>% 
-  filter(time==4) %>% 
-  filter(is.na(MDS_UPDRS_III_off)) %>% 
-  filter(!is.na(years_treatment)) %>% 
-  select(years_treatment, MDS_UPDRS_III_on, MDS_UPDRS_III_other) %>% View()
-
-
-df_varying %>% 
-  filter(!(id %in% pats_stopped_PDMEDYN)) %>% 
-  left_join(df_constant,by="id") %>% 
-  left_join(treat_length,by="id") %>% 
-  filter(time==4) %>% 
-  lm(MDS_UPDRS_III_off~years_treatment,data=.) %>% summary
-  tidy
-
-df_varying %>% 
-  filter(!(id %in% pats_stopped_PDMEDYN)) %>% 
-  left_join(df_constant,by="id") %>% 
-  left_join(treat_length,by="id") %>% 
-  filter(time==4) %>% 
-  filter(years_treatment!=0.0) %>% 
-  lm(MDS_UPDRS_III_off~years_treatment,data=.) %>% summary
-  tidy
-
-(19+98+24+14)
-(19+98+24+14+58)
-  
-df_varying %>% 
-  filter(!(id %in% pats_stopped_PDMEDYN)) %>% 
-  left_join(df_constant,by="id") %>% 
-  left_join(treat_length,by="id") %>% 
-  filter(time==4) %>% 
-  filter(years_treatment!=0.0) %>% 
-    mutate(PD_MED_USE=factor(PD_MED_USE,levels=0:7,
-                    labels=c("None","Lv","Ag","Other","Lv+Other","Lv+Ag","Ag+Other","Lv+Ag+Other"))) %>% 
-  mutate(PD_MED_USE=fct_explicit_na(PD_MED_USE)) %>% 
-  count(PD_MED_USE) %>% 
-  mutate(p=n/sum(n),nn=sum(n))
+# df_varying %>% 
+#   filter(!(id %in% pats_stopped_PDMEDYN)) %>% 
+#   left_join(df_constant,by="id") %>% 
+#   left_join(treat_length,by="id") %>% 
+#   filter(time==4) %>% 
+#   group_by(years_treatment) %>% 
+#   summarize(mean(MDS_UPDRS_III_off,na.rm=TRUE),sd(MDS_UPDRS_III_off,na.rm=TRUE),mean(MDS_UPDRS_III_other),sd(MDS_UPDRS_III_other),n(),sum(is.na(MDS_UPDRS_III_off)),sum(!is.na(MDS_UPDRS_III_off))) %>% 
+#   ungroup
+# 
+# 
+# df_varying %>% 
+#   filter(!(id %in% pats_stopped_PDMEDYN)) %>% 
+#   left_join(df_constant,by="id") %>% 
+#   left_join(treat_length,by="id") %>% 
+#   filter(time==4) %>% 
+#   lm(MDS_UPDRS_III_off~years_treatment,data=.) %>% summary
+# 
+# df_varying %>% 
+#   filter(!(id %in% pats_stopped_PDMEDYN)) %>% 
+#   left_join(df_constant,by="id") %>% 
+#   left_join(treat_length,by="id") %>% 
+#   filter(time==4) %>% 
+#   filter(years_treatment!=0.0) %>% 
+#   lm(MDS_UPDRS_III_off~years_treatment,data=.) %>% summary
+# 
+# (19+98+24+14)
+# (19+98+24+14+58)
 ```
 
 
-## Descriptives
+## Table 1S. Descriptives
 ```{r descriptives}
 treat_length <- df_varying %>% 
   left_join(df_constant,by="id") %>% 
@@ -211,32 +189,58 @@ df_varying %>%
 ```
 
 
-## Medication use
+## Table 2S. Medication types
 
 ```{r}
 df_varying %>% 
   filter(!(id %in% pats_stopped_PDMEDYN)) %>% 
   left_join(df_constant,by="id") %>% 
   left_join(treat_length,by="id") %>% 
-  group_by(id) %>% 
-  mutate(start=(PDMEDYN & !lag(PDMEDYN))) %>% 
-  ungroup %>% 
-  filter(start) %>% 
-  #count(time,years_treatment)
-  #filter(years_treatment==0.5,time==1)
-  #count(time,years_treatment) 
-  count(years_treatment,PD_MED_USE) %>%
+  filter(time==4) %>% 
+  #filter(PD_MED_USE==0,years_treatment==0.5)
+  filter(!is.na(years_treatment)) %>% 
+  filter(years_treatment>0) %>% 
+  count(years_treatment, PD_MED_USE) %>% 
+  #summarize(n=sum(n))
   complete(years_treatment,PD_MED_USE, fill=list(n=0)) %>% 
   group_by(years_treatment) %>% 
   mutate(m=n,n=n/sum(n)) %>% 
   ungroup %>% 
   mutate(PD_MED_USE=factor(PD_MED_USE,levels=0:7,
-                    labels=c("None","Lv","Ag","Other","Lv+Other","Lv+Ag","Ag+Other","Lv+Ag+Other"))) %>% 
+                    labels=c("Missing","Lv","Ag","Other","Lv+Other","Lv+Ag","Ag+Other","Lv+Ag+Other"))) %>% 
   mutate(PD_MED_USE=fct_explicit_na(PD_MED_USE)) %>% 
   select(-m) %>% spread(PD_MED_USE,n) %>% 
   na.omit %>% 
   rename(`Years Treatment`=years_treatment) %>% 
-  knitr::kable(digits=2, caption="Table 2S. Starting medication for patients in the different groups according to questions answered by the investigator. None: no medication; Lv: levodopa; Ag: agonist. None indicates a discrepancy between the two survey forms: the patient is indicated as having started Parkinson medication, but the type of medication is registered as none.")
+  knitr::kable(digits=2, caption="Table 2S. Distribution of types of medication use for patients in the different groups at year 2, according to questions answered by the investigator. Lv: levodopa; Ag: agonist.")
+```
+
+
+```{r}
+# Starting medication:
+# df_varying %>% 
+#   filter(!(id %in% pats_stopped_PDMEDYN)) %>% 
+#   left_join(df_constant,by="id") %>% 
+#   left_join(treat_length,by="id") %>% 
+#   group_by(id) %>% 
+#   mutate(start=(PDMEDYN & !lag(PDMEDYN))) %>% 
+#   ungroup %>% 
+#   filter(start) %>% 
+#   #count(time,years_treatment)
+#   #filter(years_treatment==0.5,time==1)
+#   #count(time,years_treatment) 
+#   count(years_treatment,PD_MED_USE) %>%
+#   complete(years_treatment,PD_MED_USE, fill=list(n=0)) %>% 
+#   group_by(years_treatment) %>% 
+#   mutate(m=n,n=n/sum(n)) %>% 
+#   ungroup %>% 
+#   mutate(PD_MED_USE=factor(PD_MED_USE,levels=0:7,
+#                     labels=c("None","Lv","Ag","Other","Lv+Other","Lv+Ag","Ag+Other","Lv+Ag+Other"))) %>% 
+#   mutate(PD_MED_USE=fct_explicit_na(PD_MED_USE)) %>% 
+#   select(-m) %>% spread(PD_MED_USE,n) %>% 
+#   na.omit %>% 
+#   rename(`Years Treatment`=years_treatment) %>% 
+#   knitr::kable(digits=2, caption="Table 2S. Starting medication for patients in the different groups according to questions answered by the investigator. None: no medication; Lv: levodopa; Ag: agonist. None indicates a discrepancy between the two survey forms: the patient is indicated as having started Parkinson medication, but the type of medication is registered as none.")
 
 # my_ids <- df_varying %>%
 #   filter(!(id %in% pats_stopped_PDMEDYN)) %>%
@@ -270,7 +274,7 @@ df_varying %>%
 
 ```
 
-```{r results="asis"}
+```{r results="asis", eval=FALSE}
 #Examples of "other" PD medication
 my_ids <- df_varying %>%
   filter(!(id %in% pats_stopped_PDMEDYN)) %>%
@@ -297,7 +301,7 @@ get_medications <- function(id, event="V02") {
 
 
 
-```{r}
+```{r eval=FALSE}
 ids <- treat_length %>% filter(years_treatment==2) %>% .$id
 df_med <- map_dfr(ids, get_medications, event="V02")
 #length(ids)
@@ -324,10 +328,9 @@ bind_rows("2"=dfuse2,"1.5"=dfuse15,"1"=dfuse1,"0.5"=dfuse05,.id = "Treatment") %
   spread(Treatment,perc,fill = 0) %>% arrange(desc(`1.5`)) %>% 
   rename(Medication=WHODRUG) %>% 
   mutate(Medication=str_to_title(Medication)) %>% 
-  kable(digits = 2, caption="Table 3S: Medication used during the first visit where the patients indicated that they used PD medication, according to the concomitant medication log. Numbers indicate what fraction of the patients used that medication in each group (0.5 year, 1 year, 1.5 year and 2 years of using PD medication in the first two years of the disease).")
+  kable(digits = 2, caption="Table ?: Medication used during the first visit where the patients indicated that they used PD medication, according to the concomitant medication log. Numbers indicate what fraction of the patients used that medication in each group (0.5 year, 1 year, 1.5 year and 2 years of using PD medication in the first two years of the disease).")
 ```
 
-## MDS-UPDRS, MoCA, MSEADL results
 ```{r}
 plot_bootstrap <- function(df_res, df_boot) {
   df_res %>% 
@@ -335,8 +338,8 @@ plot_bootstrap <- function(df_res, df_boot) {
     mutate(Model=fct_rev(fct_inorder(Model))) %>% 
     ggplot(aes(x=estimate,y=Model,color=Model)) +
     geom_vline(aes(xintercept=0))+
-    geom_point() +
-    geom_segment(aes(x=estimate-2*sd,xend=estimate+2*sd,yend=Model),alpha=0.6) +
+    geom_point(na.rm=TRUE) +
+    geom_segment(aes(x=estimate-2*sd,xend=estimate+2*sd,yend=Model),alpha=0.6,na.rm=TRUE) +
     theme_bw() +
     theme(text=element_text(family="sans"), 
           legend.position="none",
@@ -350,7 +353,7 @@ plot_bootstrap <- function(df_res, df_boot) {
 ```
 
 
-```{r fig.asp=0.5, fig.cap="Figure 2S. Effect of a year of PD medication treatment during the first two years of follow-up (estimated using all patients). Effect on the score of different outcomes measured at year 2, 3 and 4. "}
+```{r}
 process_results <- function(.x) {
   .x %>% 
     filter(term %in% c("I((treatment + treatment_lag1 + treatment_lag2 + treatment_lag3)/2)",
@@ -362,26 +365,38 @@ process_results <- function(.x) {
                                    `IPW_msms_adj`="Baseline + IPTW",`IPW_msms_adj_full`=" Baseline All + IPTW", `IPW_msms_adj_ledd`="IPTW + LEDD", `gformula_msms_adj`="g-formula")
     )) %>% 
     filter(str_detect(Outcome,"MDS_UPDRS")|Outcome=="MoCA"|Outcome=="MSEADLG") %>% 
-    #filter(Outcome!="MDS_UPDRS_III_other") %>% 
+    filter(Outcome!="MDS_UPDRS_III_other") %>% 
     mutate(Outcome=str_replace(Outcome,"_off","")) %>% 
     mutate(Outcome=str_replace_all(Outcome,"_"," ")) %>% 
     mutate(Outcome=str_replace_all(Outcome,"MDS UPDRS","MDS-UPDRS"))
 }
-
-plot_bootstrap(
-  full_results_PDMEDYN %>% process_results,
-  bs_pdmedyn_all %>% process_results
-)
 ```
 
-```{r fig.asp=0.5, fig.cap="Figure 3S: Effect of a year of PD medication treatment during the first two years of follow-up (estimated using only those patients who started during the first two years). Effect on the score of different outcomes measured at year 2, 3 and 4."}
+
+## Figure 2S. MDS-UPDRS I, II, III, MoCA, MSEADL – Any PD medication - only starters
+```{r fig.asp=0.5, fig.cap="Figure 2S: Effect of a year of PD treatment (any medication) during the first two years of follow-up (estimated using only those patients who were using medication at the time of the outcome measurement). Effect on the score of different outcomes measured at year 2, 3 and 4."}
 plot_bootstrap(
   full_results_PDMEDYN_started %>% process_results,
   bs_pdmedyn_started %>% process_results
 ) 
 ```
 
-## Other outcomes
+## Figure 3S. MDS-UPDRS I, II, III, MoCA, MSEADL – Any PD medication - Whole population
+```{r fig.asp=0.5, fig.cap="Figure 3S. Effect of a year of PD treatment (any medication) during the first two years of follow-up (extrapolated to the whole study population). Effect on the score of different outcomes measured at year 2, 3 and 4. "}
+plot_bootstrap(
+  full_results_PDMEDYN_extra %>% process_results,
+  bs_pdmedyn_extra %>% process_results
+)
+```
+
+## Figure 4S. MDS-UPDRS I, II, III, MoCA, MSEADL – Only levodopa - Only starters
+```{r fig.asp=0.5, fig.cap="Figure 5S: Effect of a year of PD treatment (exclusively levodopa) during the first two years of follow-up (estimated using only those patients who used levodopa exclusively during the first two years). Effect on the score of different outcomes measured at year 2, 3 and 4."}
+plot_bootstrap(
+  full_results_onldopa_levoonly %>% process_results,
+  bs_onldopa_levoonly %>% process_results
+)
+```
+
 
 ```{r}
 process_results_aux <- function(.x) {
@@ -401,43 +416,26 @@ process_results_aux <- function(.x) {
 }
 ```
 
+## Figure 5S. Dyskinesias, motor fluctuations, QUIP – Any PD medication - Only starters
 
-
-```{r fig.asp=0.4, fig.width=9, fig.cap="Figure 4S: Effect of a year of PD medication treatment during the first two years of follow-up (estimated using only those patients who started during the first two years). Effect on the score of different outcomes measured at year 2, 3 and 4."}
+```{r fig.asp=0.4, fig.width=9, fig.cap="Figure 5S: Effect of a year of PD treatment (any medication) during the first two years of follow-up (estimated using only those patients who were using medication at the time of the outcome measurement). Effect on the score of different outcomes measured at year 2, 3 and 4."}
 plot_bootstrap(
   full_results_PDMEDYN_started %>% process_results_aux,
   bs_pdmedyn_started %>% process_results_aux
 )
 ```
 
-# Levodopa Treatment
+## Figure 6S. Dyskinesias, motor fluctuations, QUIP – Any PD medication - Whole population
 
-## MDS-UPDRS, MoCA, MSEADL results
-
-```{r fig.asp=0.5, fig.cap="Figure 5S: Effect of a year of Levodopa treatment during the first two years of follow-up (estimated using only those patients who used levodopa exclusively during the first two years). Effect on the score of different outcomes measured at year 2, 3 and 4."}
+```{r fig.asp=0.4, fig.width=9, fig.cap="Figure 6S: Effect of a year of PD treatment (any medication)  during the first two years of follow-up (extrapolated to the whole study population). Effect on the score of different outcomes measured at year 2, 3 and 4."}
 plot_bootstrap(
-  full_results_onldopa_levoonly %>% process_results,
-  bs_onldopa_levoonly %>% process_results
+  full_results_PDMEDYN_extra %>% process_results_aux,
+  bs_pdmedyn_extra %>% process_results_aux
 )
 ```
 
-```{r fig.asp=0.5, fig.cap="Figure 6S: Effect of a year of Levodopa treatment during the first two years of follow-up (estimated using all patients). Effect on the score of different outcomes measured at year 2, 3 and 4."}
-plot_bootstrap(
-  full_results_onldopa %>% process_results,
-  bs_onldopa_all %>% process_results
-)
-```
-
-```{r fig.asp=0.5, fig.cap="Figure 7S: Effect of a year of Levodopa treatment during the first two years of follow-up (estimated using only those patients who started during the first two years). Effect on the score of different outcomes measured at year 2, 3 and 4."}
-plot_bootstrap(
-  full_results_onldopa_started %>% process_results,
-  bs_onldopa_started %>% process_results
-)
-```
-
-## Other outcomes
-
-```{r fig.asp=0.4, fig.width=9, fig.cap="Figure 8S: Effect of a year of Levodopa treatment during the first two years of follow-up (estimated using only those patients who used levodopa exclusively during the first two years). Effect on the score of different outcomes measured at year 2, 3 and 4."}
+## Figure 7S. Dyskinesias, motor fluctuations, QUIP – Only levodopa - Only starters
+```{r fig.asp=0.4, fig.width=9, fig.cap="Figure 7S: Effect of a year of PD treatment (exclusively levodopa) during the first two years of follow-up (estimated using only those patients who used levodopa exclusively during the first two years). Effect on the score of different outcomes measured at year 2, 3 and 4."}
 plot_bootstrap(
   full_results_onldopa_levoonly %>% process_results_aux,
   bs_onldopa_levoonly %>% process_results_aux
@@ -445,20 +443,12 @@ plot_bootstrap(
 ```
 
 
-
-```{r fig.asp=0.4, fig.width=9, fig.cap="Figure 9S: Effect of a year of Levodopa treatment during the first two years of follow-up (estimated using only those patients who started during the first two years). Effect on the score of different outcomes measured at year 2, 3 and 4."}
-plot_bootstrap(
-  full_results_onldopa_started %>% process_results_aux,
-  bs_onldopa_started %>% process_results_aux
-)
-```
-
-
-
 # Non-linearity of the effect
-In the results above we assumed in the marginal structural model that the effect of treatment was linear: adding half a year of treatment has the same effect regardless of whether one goes from 0 years of treatment to 0.5 year of treatment or from 1.5 years of treatment to 2 year of treatment. Here we estimate how the effect differs for different time points. "Treatment @ 2" refers to having treatment at year 2 (so in the final time six months), Treatment 1.5 is between year 1 and 1.5, etc.
+In the results above we assumed in the marginal structural model that the effect of treatment was linear: adding half a year of treatment has the same effect regardless of whether one goes from 0 years of treatment to 0.5 year of treatment or from 1.5 years of treatment to 2 year of treatment. Here we estimate how the effect differs for different time points. "Treatment @ 2" refers to having treatment at year 2 (so in the final six months), Treatment 1.5 is between year 1 and 1.5, etc.
 
-```{r fig.asp=0.4, fig.cap="Figure 10S: Additive effect of treatment being active at different time-points with PD medication treatment during the first two years for the IPTW model (estimated using all patients). Effect on the score of different outcomes measured at year 2, 3 and 4."}
+
+
+```{r}
 process_results <- function(.x) {
   .x %>% 
     filter(term %in% c("treatment","treatment_lag1","treatment_lag2","treatment_lag3")) %>% 
@@ -472,28 +462,24 @@ process_results <- function(.x) {
     mutate(Model=recode(Model,!!!c(`treatment`="Treatment @ 2",`treatment_lag1`="Treatment @ 1.5",
                                 `treatment_lag2`="Treatment @ 1", `treatment_lag3`="Treatment @ 0.5"))) 
 }
-
-plot_bootstrap(
-  full_results_PDMEDYN %>% process_results,
-  bs_pdmedyn_all %>% process_results
-)
 ```
 
-```{r fig.asp=0.4, fig.cap="Figure 11S: Additive effect of treatment being active at different time-points with PD medication treatment during the first two years for the IPTW model for only those patients who started treatment (hence all have active treatment at time 2). Effect on the score of different outcomes measured at year 2, 3 and 4."}
+## Figure 8S. Non-linearity of the effect IPTW – Only starters
+```{r fig.asp=0.4, fig.cap="Figure 8S: Additive effect of treatment (any medication) being active at different time-points during the first two years for the IPTW model for only those patients who had started medication treatment at the time of the outcome measurement (hence all have active treatment at time 2). Effect on the score of different outcomes measured at year 2, 3 and 4."}
 plot_bootstrap(
   full_results_PDMEDYN_started %>% process_results,
   bs_pdmedyn_started %>% process_results
 )
 ```
 
-```{r fig.asp=0.4, fig.cap="Figure 12S: Additive effect of treatment being active at different time-points with PD medication treatment during the first two years for the g-formula model  (estimated using all patients). Effect on the score of different outcomes measured at year 2, 3 and 4."}
+## Figure 9S. Non-linearity of the effect g-formula – Only starters
+```{r fig.asp=0.4, fig.cap="Figure 9S: Additive effect of treatment (any medication)  being active at different time-points during the first two years for the g-formula model  (estimated using those patients who had started medication treatment at the time of the outcome measurement). Effect on the score of different outcomes measured at year 2, 3 and 4."}
 process_results <- function(.x) {
   .x %>% 
     filter(term %in% c("treatment","treatment_lag1","treatment_lag2","treatment_lag3")) %>% 
     filter(Model %in% c("gformula_msms_adj")) %>% 
     mutate(Model=term) %>% 
     filter(Outcome!="QUIP") %>% 
-    filter(Outcome!="MDS_UPDRS_III_other") %>% 
     filter(Outcome!="MDS_UPDRS_III_other") %>% 
     mutate(Outcome=str_replace_all(Outcome,"_"," ")) %>% 
     mutate(Outcome=str_replace_all(Outcome,"off","")) %>% 
@@ -504,16 +490,16 @@ process_results <- function(.x) {
 }
 
 plot_bootstrap(
-  full_results_PDMEDYN %>% process_results,
-  bs_pdmedyn_all %>% process_results
+  full_results_PDMEDYN_started %>% process_results,
+  bs_pdmedyn_started %>% process_results
 ) + ggtitle(NULL,subtitle = NULL)
 ```
 
 
 # Effect modification
-To estimate the potential modification of the effect of different baseline characteristics of the patient, using the inverse probability weights for each outcome/year we estimate a marginal structural model containing main effects and interaction terms with treatment length for age, sex, disease duration and three MDS-UPDRS subscores at baseline in a single model.
+To estimate the potential modification of the effect of different baseline characteristics of the patient, using the inverse probability of treatment weights for each outcome/year we estimate a marginal structural model containing main effects and interaction terms with treatment length for age, sex, disease duration and three MDS-UPDRS subscores at baseline in a single model.
 
-```{r fig.cap="Figure 13S: Interaction effects in the IPTW Marginal Structural Model (main effects not shown), for the length of PD medication treatment in the first two years of follow-up using all patients in the analysis (estimated using all patients)."}
+```{r fig.cap="Figure 10S: Interaction effects in the IPTW Marginal Structural Model (main effects not shown), for the length of PD treatment (any medication) in the first two years of follow-up, estimated using patients who had started medication therapy at the time of the outcome measurement."}
 process_results <- function(.x) {
   .x %>% 
     filter(Model=="IPW_msms_interaction") %>% 
@@ -546,8 +532,8 @@ plot_bootstrap <- function(df_res, df_boot) {
     mutate(Model=(fct_inorder(Model))) %>% 
     ggplot(aes(x=estimate,y=fct_rev(Year),color=Model)) +
     geom_vline(aes(xintercept=0))+
-    geom_point() +
-    geom_segment(aes(x=estimate-2*sd,xend=estimate+2*sd,yend=Year),alpha=0.6) +
+    geom_point(na.rm=TRUE) +
+    geom_segment(aes(x=estimate-2*sd,xend=estimate+2*sd,yend=Year),alpha=0.6,na.rm=TRUE) +
     theme_bw() +
     theme(text=element_text(family="sans"), 
           legend.position="none",
@@ -560,7 +546,7 @@ plot_bootstrap <- function(df_res, df_boot) {
 }
 
 plot_bootstrap(
-  full_results_PDMEDYN %>% process_results,
-  bs_pdmedyn_all %>% process_results
+  full_results_PDMEDYN_started %>% process_results,
+  bs_pdmedyn_started %>% process_results
 )
 ```
