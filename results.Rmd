@@ -30,7 +30,7 @@ if (file.exists("data/results-summary.RData")) {
   load("data/gmethods_ppmi_onldopa.RData")
   
   change_names <- function(df) { df %>% 
-      separate(outcome,c("Outcome","Year"),sep = "_year") %>% unite("Model",method, modelname) 
+      separate(outcome,c("Outcome","Year"),sep = "_year") %>% unite("Model", method, modelname) 
   }
   summ_stats <- function(df) { df %>% group_by(Outcome,Model,Year,form,term) %>%
     summarize(est=mean(estimate,na.rm=TRUE),sd=sd(estimate,na.rm=TRUE),n=n()) %>% ungroup }
@@ -74,7 +74,7 @@ if (file.exists("data/results-summary.RData")) {
   ) %>% change_names %>% summ_stats
   
   full_results_onldopa_levoonly <- bind_rows(
-    full_results_onldopa_levoonly_y4 %>% filter(str_detect(outcome,"_year2")),
+    full_results_onldopa_levoonly_y2 %>% filter(str_detect(outcome,"_year2")),
     full_results_onldopa_levoonly_y3 %>% filter(str_detect(outcome,"_year3")),
     full_results_onldopa_levoonly_y4 %>% filter(str_detect(outcome,"_year4"))
   )%>% change_names
@@ -144,6 +144,7 @@ df_varying %>%
             `MDS-UPDRS III`=dbl_in_table(MDS_UPDRS_III_other),
             MoCA=dbl_in_table(MoCA),
             `MSE-ADL`=dbl_in_table(MSEADLG),
+            `SCOPA-AUT`=dbl_in_table(SCOPA_AUT),
             `QUIP (% any)`=lgperce_in_table(QUIP>0),
             `LEDD @ 2 years`=dbl_in_table(LEDD_year2),
             `LEDD @ 3 years`=dbl_in_table(LEDD_year3),
@@ -188,9 +189,9 @@ ggout <- df_plot %>%
   geom_star(size=2, data=df_plot %>% filter(moment==TRUE, years_treatment!=0) %>% mutate(m=m-0.8+1.6*(years_treatment!=2)), inherit.aes = TRUE,show.legend = FALSE) + 
   scale_x_continuous(breaks =seq(0,48, by=6),expand=expand_scale(mult = 0.03, add = 0)) + theme_light()  + xlab("Month") + ylab("Average MDS-UPDRS Part III Score") + scale_color_viridis_d(name="Start PD medication") + scale_fill_viridis_d(name="Start PD medication") +
     theme(text=element_text(family="Lato"))
-cairo_ps("1.eps", width=6, height = 0.75*6)
+cairo_ps("figure/1.eps", width=6, height = 0.75*6)
 print(ggout)
-dev.off()
+invisible(dev.off())
 print(ggout)
 ```
 
@@ -275,9 +276,9 @@ ggout <- plot_bootstrap(
   bs_pdmedyn_started %>% process_results %>% filter(Year==2, Outcome %in% c("MDS_UPDRS_I","MDS_UPDRS_III_off","MSEADLG"))
 )
 
-cairo_ps("2.eps", width=8, height = 0.3*8)
+cairo_ps("figure/2.eps", width=8, height = 0.3*8)
 print(ggout)
-dev.off()
+invisible(dev.off())
 print(ggout)
 ```
 
@@ -314,17 +315,18 @@ plot_bootstrap_compact <- function(df_res, df_boot) {
     filter(Outcome=="MDS-UPDRS Part III") %>% 
     left_join(df_boot_all,by = c("Outcome", "Model", "Year","dataset")) %>% 
     mutate(Model=fct_rev(fct_inorder(Model))) %>% 
-    ggplot(aes(x=fct_rev(Year),y=estimate,color=Model,shape=Model)) +
-    geom_hline(aes(yintercept=0))+
-    #geom_point() +
-    geom_pointrange(aes(ymin=estimate-2*sd,ymax=estimate+2*sd),position=position_dodge(.5)) +
-    coord_flip(ylim=c(-10,10)) +
+    ggplot(aes(y=fct_rev(Year),x=estimate,color=Model,shape=Model)) +
+    geom_vline(aes(xintercept=0))+
+    geom_point(position=position_dodge(.5),size=2) +
+    #geom_pointrange(aes(ymin=estimate-2*sd,ymax=estimate+2*sd),position=position_dodge(.5)) +
+    geom_errorbarh(aes(xmin=estimate-2*sd,xmax=estimate+2*sd),position=position_dodge(.5),height=0) +
+    coord_cartesian(xlim=c(-10,10)) +
     theme_bw() +
     theme(text=element_text(family="Lato"), 
           legend.position="bottom",
           panel.grid.major = element_line(linetype = 2,size=0.2),
           strip.background = element_rect(fill="white")) +
-    xlab("Year") +ylab("") +
+    xlab("") +ylab("Year") +
     facet_grid(Outcome~dataset,labeller = function(.x) {label_value(.x,multi_line = FALSE)}) +
     #scale_color_viridis_d(option = "E",end=0.8) +
     theme(strip.placement = "outside") +
@@ -341,11 +343,12 @@ ggout <- plot_bootstrap_compact(
             bs_onldopa_levoonly %>% process_results %>% mutate(dataset="Only Levodopa")) %>% 
     filter(Model %in% c("IPW_msms_adj","gformula_msms_adj"), str_detect(Outcome,"MDS_UPDRS"))
 ) + theme(strip.text.y = element_text(family="Lato",size=8) )
+print(ggout)
 
-cairo_ps("3.eps", width=6, height = 0.4*6)
+cairo_ps("figure/3.eps", width=6, height = 0.4*6)
 print(ggout)
-dev.off()
-print(ggout)
+invisible(dev.off())
+
 ```
 
 In the table below: obs refers to the number of non-missing measurements used for the esitmation for the IPTW models, and to the number of simulated outcomes for the g-formula (4 treatment options times 100 simulations per patient for the year 2 outcomes and 5 treatment options times 100 simulations per patient for the other outcomes). 
@@ -394,15 +397,16 @@ calc_table(
 
 # Auxiliary outcomes
 
-```{r dpi=1200, fig.width = 8, fig.asp=0.4, fig.cap="Figure 4: Effect of one year of PD medication treatment during the first two years of follow-up. Effect on auxiliary outcomes at year 2, 3 and 4 for inverse probability of treatment weighting. Only patients who have started medication therapy at the time of the outcome measurement are included in the analysis."}
+```{r message=FALSE, dpi=1200, fig.width = 9, fig.asp=0.3, fig.cap="Figure 4: Effect of one year of PD medication treatment during the first two years of follow-up. Effect on auxiliary outcomes at year 2, 3 and 4 for inverse probability of treatment weighting. Only patients who have started medication therapy at the time of the outcome measurement are included in the analysis."}
 plot_bootstrap_aux <- function(df_res, df_boot) {
   df_boot_all <- df_boot %>% 
     mutate(Outcome=case_when(
       Outcome=="MDS_UPDRS_I"~"MDS UPDRS Part I",
       Outcome=="MDS_UPDRS_II"~"MDS UPDRS Part II",
-      Outcome=="MSEADLG"~"Modified Schwab & England",
-      Outcome=="NP4OFF"~"Presence of motor fluctuations",
+      Outcome=="MSEADLG"~"Mod. Schwab & England",
+      Outcome=="NP4OFF"~"Motor fluctuations",
       Outcome=="NP4WDYSK"~"Presence of dyskinesias",
+      Outcome=="SCOPA_AUT"~"SCOPA-AUT",
       TRUE~Outcome
     ))
   
@@ -410,16 +414,18 @@ plot_bootstrap_aux <- function(df_res, df_boot) {
     mutate(Outcome=case_when(
       Outcome=="MDS_UPDRS_I"~"MDS UPDRS Part I",
       Outcome=="MDS_UPDRS_II"~"MDS UPDRS Part II",
-      Outcome=="MSEADLG"~"Modified Schwab & England",
-      Outcome=="NP4OFF"~"Presence of motor fluctuations",
+      Outcome=="MSEADLG"~"Mod. Schwab & England",
+      Outcome=="NP4OFF"~"Motor fluctuations",
       Outcome=="NP4WDYSK"~"Presence of dyskinesias",
+      Outcome=="SCOPA_AUT"~"SCOPA-AUT",
       TRUE~Outcome
     )) %>% 
     
     left_join(df_boot_all,by = c("Outcome", "Model", "Year","dataset")) %>% 
-    filter(!(Outcome %in% c("MDS UPDRS Part I","MDS UPDRS Part II"))) %>% 
+    #filter(!(Outcome %in% c("MDS UPDRS Part I","MDS UPDRS Part II"))) %>% 
     mutate(Model=fct_rev(fct_inorder(Model))) %>% 
     mutate(Outcome=fct_inorder(Outcome)) %>% 
+    mutate(Outcome=fct_relevel(Outcome,"SCOPA-AUT",after=4)) %>% 
     mutate(dataset=fct_inorder(dataset)) %>% 
     ggplot(aes(x=estimate,y=fct_rev(Year)),color="blue") +
     geom_vline(aes(xintercept=0))+
@@ -428,9 +434,10 @@ plot_bootstrap_aux <- function(df_res, df_boot) {
     theme_bw() +
     theme(text=element_text(family="Lato"), 
           legend.position="none",
-          panel.spacing.x=unit(0.5,"cm"),
+          panel.spacing.x=unit(0.2,"cm"),
           panel.grid.major = element_line(linetype = 2,size=0.2),
-          strip.background = element_rect(fill="white")) +
+          strip.background = element_rect(fill="white"),
+          strip.text = element_text(size=7)) +
     ylab("") +xlab("") +
     facet_grid(dataset~Outcome, scales="free_x") +
     #facet_wrap(Outcome~dataset,labeller = function(.x) {label_value(.x,multi_line = TRUE)},scales="free_x",ncol=2) +
@@ -448,11 +455,10 @@ process_results_aux <- function(.x) {
       str_detect(form,"treatment_lag3\\)/") ~ "Naive",
       TRUE ~ "other")
     ) %>% 
-    #filter(form2!="interact") %>% 
-    filter(Model %in% c("IPW_msms"))  %>%  #TODO: change to Adjust?
-    filter(Outcome %in% c("MDS_UPDRS_I","MDS_UPDRS_II","NP4WDYSK","NP4OFF","MSEADLG"))
+    filter(Model %in% c("IPW_msms","IPW_msms_adj"))  %>%
+    filter(Outcome %in% c("MDS_UPDRS_I","MDS_UPDRS_II","NP4WDYSK","NP4OFF","MSEADLG","MoCA","SCOPA_AUT")) %>% 
+    group_by(Outcome,Year) %>% arrange(desc(Model)) %>% slice(1) %>% ungroup # Select adjusted if available
 }
-
 
 ggout <- plot_bootstrap_aux(
   bind_rows(full_results_PDMEDYN_started %>% process_results_aux %>% mutate(dataset="PD Medication"), 
@@ -461,8 +467,8 @@ ggout <- plot_bootstrap_aux(
             bs_onldopa_levoonly %>% process_results_aux %>% mutate(dataset="Levodopa Only"))
 ) + ylab("Year")
 
-cairo_ps("4.eps", width=8, height = 0.4*8)
+cairo_ps("figure/4.eps", width=9, height = 0.3*8)
 print(ggout)
-dev.off()
+invisible(dev.off())
 print(ggout)
 ```
