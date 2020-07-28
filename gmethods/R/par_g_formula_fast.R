@@ -68,11 +68,11 @@ par_g_formula_fast <- function(data_varying, msm, models, data_constant=NULL, da
       df_pred <- df_t
       for (i in seq_len(K)) {
         new_block <- bind_cols(new_block, predict_mc(fitted[[t]][[i]],df_pred))
-        df_pred <- bind_cols(df_t,new_block)
+        df_pred <- bind_cols(df_t %>% select(-treatment),new_block)
       }
       blocks[[t+1]] <- new_block
     }
-    df_t <- bind_cols(df_t, blocks[[T+1]])
+    df_t <- bind_cols(df_t %>% select(-treatment), blocks[[T+1]])
     df_t
 
   }

@@ -20,7 +20,7 @@ load("data/data.RData")
 ```{r constant-variables}
 df_constant <- subject_characteristics %>% 
   filter(!is.na(Group)) %>% 
-  select(PATNO,Education,Sex,Age,`Disease duration`,Group,Center,ENROLL_DATE) %>% 
+  select(PATNO,Education,Sex,Age,`Disease duration`,Group,Center,ENROLL_DATE,CV_HISTORY) %>% 
   mutate(ENROLL_DATE=convert_monthyear_num(ENROLL_DATE)) %>% 
   filter(!(PATNO %in% c(41635,73467)))
 
@@ -242,19 +242,21 @@ mds_3 %>%
     select(.,-PATNO,-EVENT_ID) %>% princomp() %>% .$scores %>% as.data.frame() %>% rename_all(function(x){paste0("PC3_",x)})
   )} -> df_pc3
 
-df_repeated <- df_repeated %>% 
-  left_join(df_pc1,by = c("PATNO", "EVENT_ID")) %>% 
-  left_join(df_pc2,by = c("PATNO", "EVENT_ID")) %>% 
-  left_join(df_pc3,by = c("PATNO", "EVENT_ID"))
+# df_repeated <- df_repeated %>% 
+#   left_join(df_pc1,by = c("PATNO", "EVENT_ID")) %>% 
+#   left_join(df_pc2,by = c("PATNO", "EVENT_ID")) %>% 
+#   left_join(df_pc3,by = c("PATNO", "EVENT_ID"))
 ```
 
 ## MoCA, SE, MCI, QUIP
-No MOCA administered at baseline, so take the measurement at screening (SC, approximately 1 month earlier than baseline).
+No MOCA administered at baseline, so take the measurement at screening (SC, approximately 1 month earlier than baseline). If the adjusted MoCA score is missing, use the score calculated by the examiner.
 
 ```{r}
 df_repeated <- df_repeated %>% 
   left_join(
-    moca %>% mutate(EVENT_ID=replace(EVENT_ID,EVENT_ID=="SC","BL")) %>% select(PATNO,EVENT_ID,MoCA=MCATOT),
+    moca %>% mutate(EVENT_ID=replace(EVENT_ID,EVENT_ID=="SC","BL")) %>% 
+      mutate(MOCA_adjusted=if_else(is.na(MOCA_adjusted) & !is.na(MCATOT), MCATOT, MOCA_adjusted)) %>% 
+      select(PATNO,EVENT_ID,MoCA=MOCA_adjusted),
     by=c("PATNO","EVENT_ID")
   )
 
@@ -263,6 +265,9 @@ df_repeated <- df_repeated %>%
 
 df_repeated <- df_repeated %>% 
   left_join(non_motor %>% select(PATNO,EVENT_ID,QUIP,QUIP8,QUIPany), by=c("PATNO","EVENT_ID"))
+
+df_repeated <- df_repeated %>% 
+  left_join(scopa %>% select(PATNO,EVENT_ID,`SCOPA-AUT`), by=c("PATNO","EVENT_ID"))
 ```
 
 ## Medication Use
@@ -440,7 +445,7 @@ df_repeated %>%
   filter(EVENT_ID %in% events) %>% 
   filter(Group=="PD") %>% 
   select(-Time) %>% 
-  select(-starts_with("PC"),"PC1_Comp.1","PC1_Comp.2","PC1_Comp.3") %>% 
+  #select(-starts_with("PC"),"PC1_Comp.1","PC1_Comp.2","PC1_Comp.3") %>% 
   filter(!is.na(Year)) %>% 
   gather(Measurement,Value,-PATNO,-EVENT_ID,-Year,-Date) %>% 
   group_by(Year,Measurement) %>% 

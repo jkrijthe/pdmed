@@ -179,7 +179,7 @@ random <- read_csv("raw-data/Study_Enrollment/Randomization_table.csv",col_types
 
 
 #read_csv("raw-data/Medical_History/Clinical_Diagnosis_and_Management.csv")
-#read_csv("raw-data/Medical_History/Diagnostic_Features.csv")
+#read_csv("raw-data/Medical_History/Diagnostic_Features.csv") %>% count(DFSTROKE)
 
 ## Combine
 subject_characteristics <- 
@@ -610,10 +610,15 @@ moca <- read_csv("raw-data/Non-motor_Assessments/Montreal_Cognitive_Assessment__
            MCALION +  MCARHINO + MCACAMEL + MCAFDS + MCABDS + MCAVIGIL + 
            MCASER7 + MCASNTNC + MCAVF + MCAABSTR + MCAREC1 + MCAREC2 + 
            MCAREC3 + MCAREC4 + MCAREC5 + MCADATE + MCAMONTH + MCAYR + 
-           MCADAY + MCAPLACE + MCACITY) %>%
+           MCADAY + MCAPLACE + MCACITY) %>% 
+  
   #filter(info_date<lubridate::parse_date_time("04/2015","m/y")) %>% 
   #filter(original_date<lubridate::parse_date_time("06/2014","m/y")) %>%
-  select(PATNO,EVENT_ID,MOCA_unadjusted,MCATOT) 
+  left_join(socio_econ, by="PATNO") %>% 
+  mutate(MOCA_adjusted=if_else(Education<=12 & MOCA_unadjusted<30, MOCA_unadjusted+1L, MOCA_unadjusted)) %>% 
+  select(PATNO,EVENT_ID,MOCA_adjusted,MCATOT)
+
+
 
 ### QUIP
 # Drop medication
@@ -697,7 +702,7 @@ scopa <- read_csv("raw-data/Non-motor_Assessments/SCOPA-AUT.csv", col_types=
   mutate_at(vars(SCAU22:SCAU25),function(x){replace(x,x==9,0)}) %>%
   mutate_at(vars(SCAU22:SCAU25),function(x){replace(x,is.na(x),0)}) %>%
   select(-SCAU23A,-SCAU23AT) %>% 
-  mutate(`SCOPA-AUT` = rowSums(select_(.,"SCAU1:SCAU25"))) %>% 
+  mutate(`SCOPA-AUT` = rowSums(select(.,SCAU1:SCAU25))) %>% 
   select(PATNO,EVENT_ID,`SCOPA-AUT`)
 
 ### Semantic Fluency (SFT)
@@ -801,7 +806,7 @@ upsit <- read_csv("raw-data/Non-motor_Assessments/University_of_Pennsylvania_Sme
   select(PATNO,EVENT_ID,UPSIT)
 
 ### Combine
-# TODO: What to do with baseline and screening?
+# NOTE: We consider screening visits as baseline visits here
 non_motor <- 
   Reduce(function(x,y) {full_join(x %>% mutate(EVENT_ID = replace(EVENT_ID,EVENT_ID=="SC","BL")),y%>% mutate(EVENT_ID = replace(EVENT_ID,EVENT_ID=="SC","BL")),by=c("PATNO","EVENT_ID"))},
          list(upsit,sdm,statetrait,semanticfluency,scopa,remsleep,quip,
@@ -844,7 +849,7 @@ datscan_visual <- read_csv("raw-data/Imaging/DaTSCAN_SPECT_Visual_Interpretation
                                SCANDATE = col_character()
                              ))
 
-#TODO: contralateral, ipsilateral
+# TODO: contralateral, ipsilateral
 
 ## Biospecimen
 
@@ -925,8 +930,7 @@ pd_med_use <- read_csv("raw-data/Medical_History/Use_of_PD_Medication.csv",col_t
 
 # Events
 #read_csv("raw-data/Medical_History/Adverse_Event_Log.csv")
-#read_csv("raw-data/Medical_History/Concomitant_Medications.csv")
-#read_csv("raw-data/Medical_History/Current_Medical_Conditions_Log.csv")
+#read_csv("raw-data/Medical_History/Current_Medical_Conditions_Log.csv") %>% View()
 
 conmed <- read_csv("raw-data/Medical_History/Concomitant_Medications.csv",col_types = cols(
   .default = col_character(),
@@ -1041,6 +1045,45 @@ conditions <- read_csv("raw-data/Medical_History/Current_Medical_Conditions_Log.
   select(PATNO,Disease,DIAGYR) %>% 
   spread(Disease,DIAGYR)
 
+cv_terms <- c(
+  'CORONARY ARTERY DISEASE',
+  'MYOCARDIAL INFARCTION',
+  'ANGINA',
+  'HEART ATTACK',
+  'TRANSIENT ISCHEMIC ATTACK',
+  'CABG',
+  'CAD',
+  'CHRONIC ISCHEMIC HEART DISEASE',
+  'CORONARY ARTERY BYPASS GRAFT SURGERY',
+  'CORONARY ARTERY DISEASE (CAD)',
+  'CORONARY ARTERY DISEASE WITH STENT PLACEMENT',
+  'TRANSIENT ISCHEMIC ATTACK',
+  'TIA'
+)
+
+gmh <- read_csv("raw-data/Medical_History/General_Medical_History.csv",
+                col_types = cols(
+                  .default = col_character(),
+                  REC_ID = col_double(),
+                  PATNO = col_double(),
+                  MHROW = col_double(),
+                  MHHX = col_double(),
+                  MHACTRES = col_double(),
+                  MHDIAGYR = col_double(),
+                  PT_CODE = col_double(),
+                  LAST_UPDATE = col_datetime(format = "")
+                )) %>% 
+  mutate(CV_HISTORY = case_when(
+    str_detect(VERBATIM, 'STROKE') | VERBATIM %in% cv_terms ~ 1,
+    TRUE ~ 0
+  )) %>%
+  distinct(PATNO, CV_HISTORY) %>%
+  group_by(PATNO) %>% # if somebody has cvhist and non cv diseases in MH, register as somebody with cvhist
+  arrange(desc(CV_HISTORY)) %>%
+  slice(1) %>%
+  ungroup
+
+subject_characteristics <- left_join(subject_characteristics,gmh,by="PATNO")
 # read_csv("raw-data/Medical_History/Current_Medical_Conditions_Log.csv") %>%
 #   .$PT_NAME %>% str_extract(".*choles.*") %>% unique 
 # 
@@ -1058,6 +1101,8 @@ conditions <- read_csv("raw-data/Medical_History/Current_Medical_Conditions_Log.
 #   .$CONDTERM %>% str_extract("DIABETE.*") %>% unique
 # read_csv("raw-data/Medical_History/Current_Medical_Conditions_Log.csv") %>% 
 #   .$CONDTERM
+
+
 
 save(subject_characteristics,non_motor,mds_total,datscan,datscan_visual,mds_1,mds_2,mds_3,mds_4, mds_measurements,
      biospecimen,blood,pd_med_use,vital,conditions,modified_schwab,ledds,moca,scopa,sig,ledds,conmed,file="data/data.RData")

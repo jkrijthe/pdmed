@@ -108,11 +108,11 @@ censor <- function(m) {
 ## Constant Features
 ```{r}
 # Constant Characteristics
-df_constant_v <- df_constant %>% 
+df_constant_selected <- df_constant %>% 
   filter(Group=="PD") %>% 
   mutate(id=as.character(PATNO)) %>% 
   rename(Duration=`Disease duration`) %>% 
-  select(id, Age, Sex, Duration, Education, Group)
+  select(id, Age, Sex, Duration, Education, Group, CV_HISTORY)
 ```
 
 ## ST measurements
@@ -122,7 +122,7 @@ events_all <- c("BL","V01","V02","V03","V04","V05","V06","V07","V08","V09","V10"
 
 df_t <- df_repeated %>% 
   mutate(id=as.character(PATNO)) %>% 
-  filter(id %in% df_constant_v$id) %>% 
+  filter(id %in% df_constant_selected$id) %>% 
   filter(EVENT_ID %in% events_all)  %>% 
   mutate(PDMEDYN=if_else(is.na(PDMEDYN) & EVENT_ID=="ST", FALSE, PDMEDYN))
 
@@ -147,12 +147,14 @@ df_repeated_a <- df_t %>%
 
 ## Imputation
 ```{r}
+vars_impute <- c("MDS_UPDRS_I","MDS_UPDRS_II","MDS_UPDRS_III_other","MSEADLG","SCOPA_AUT")
 
 df_varying <- df_repeated_a %>% 
+  rename(SCOPA_AUT=`SCOPA-AUT`) %>% 
   filter(Month %in% c(0,6,12,18,24,30,36,42,48,54,60)) %>%
   mutate(time=Month/6) %>% 
   arrange(id,time) %>% 
-  complete(id,time) %>% filter(is.na(LEDDnonzero))
+  complete(id,time) %>% #filter(is.na(LEDDnonzero))
   # group_by(id) %>% 
   # mutate_at(c("MDS_UPDRS_I","MDS_UPDRS_II","MDS_UPDRS_III_other","MSEADLG"),impute_middle,distance=1) %>% 
   # mutate_at(c("MoCA"),impute_middle,distance=2) %>% 
@@ -183,23 +185,19 @@ df_varying <- df_repeated_a %>%
 
 df_varying %>% count(id) %>% .$n %>% {.==11} %>% all
 
-df_varying_tv <- df_varying %>% 
+df_varying_selected <- df_varying %>% 
   filter(time %in% c(0,1,2,3,4)) %>% 
-  select(id,time,starts_with("MDS_"),starts_with("MoCA"),starts_with("MSEADLG"),ONLDOPA,PDMEDYN,censored,PD_MED_USE,QUIP,QUIP8,QUIPany,NP4WDYSK,NP4OFF,LEDD)
+  select(id,time,starts_with("MDS_"),starts_with("MoCA"),starts_with("MSEADLG"),ONLDOPA,PDMEDYN,censored,PD_MED_USE,QUIP,QUIP8,QUIPany,NP4WDYSK,NP4OFF,LEDD,SCOPA_AUT)
 
-df_varying_4y <- df_varying %>% 
-  filter(time %in% c(0,1,2,3,4,5,6,7,8)) %>%
-  select(id,time,starts_with("MDS_"),starts_with("MoCA"),starts_with("MSEADLG"),ONLDOPA,PDMEDYN,censored,PD_MED_USE,QUIP,QUIP8,QUIPany,NP4WDYSK,NP4OFF,LEDD)
-
-df_last_tv <- df_varying %>% 
+df_last <- df_varying %>% 
     mutate(Year=Month/12) %>% 
     filter(Year %in% c(2,3,4)) %>% 
     mutate(Year=factor(Year)) %>% 
     select(-EVENT_ID,-PATNO,-Time,-Date) %>% 
-    select(id,Year,starts_with("MDS"),MoCA,MSEADLG,QUIP,QUIP8,QUIPany,NP4WDYSK,NP4OFF,LEDD,PDMEDYN,ONLDOPA) %>% 
+    select(id,Year,starts_with("MDS"),MoCA,MSEADLG,SCOPA_AUT,QUIP,QUIP8,QUIPany,NP4WDYSK,NP4OFF,LEDD,PDMEDYN,ONLDOPA) %>% 
     as.data.frame %>% 
     reshape(idvar = "id", timevar="Year", direction="wide", sep="_year")  %>%
-  select(id,starts_with("MDS_"),starts_with("MoCA"),starts_with("MSEADLG"),starts_with("QUIP"),starts_with("NP4WDYSK"),starts_with("NP4OFF"),starts_with("LEDD"),starts_with("PDMEDYN"),starts_with("ONLDOPA"))
+  select(id,starts_with("MDS_"),starts_with("MoCA"),starts_with("MSEADLG"),starts_with("SCOPA_AUT"),starts_with("QUIP"),starts_with("NP4WDYSK"),starts_with("NP4OFF"),starts_with("LEDD"),starts_with("PDMEDYN"),starts_with("ONLDOPA"))
 
 # Subjects that are censored but might not need to be
 # df_varying %>% filter(censored,!missing) %>% count(id,sort=TRUE)
@@ -208,25 +206,20 @@ df_last_tv <- df_varying %>%
 ```
 
 
-## Outcomes
+## Save Datasets
 ```{r}
-df_constant_tv <- df_constant_v 
-
-```
-
-```{r}
+saveRDS(df_constant_selected, "data/df_constant.rds")
 saveRDS(df_varying,"data/df_varying_all.rds")
-
-saveRDS(df_varying_tv, "data/df_varying.rds")
-saveRDS(df_last_tv, "data/df_last.rds")
-saveRDS(df_varying_4y, "data/df_varying_4y.rds")
-saveRDS(df_constant_tv, "data/df_constant.rds")
+saveRDS(df_varying_selected, "data/df_varying.rds")
+saveRDS(df_last, "data/df_last.rds")
 ```
 
+
+## Prepare analysis sets
 
 How many started on Levodopa?
 ```{r}
-ids_levoonly <- df_varying_tv %>%
+ids_levoonly <- df_varying_selected %>%
   mutate(LevoOnly=PD_MED_USE %in% c(0,NA,1,4,5,7)) %>% 
   group_by(id) %>% 
   summarize(LevoOnly=all(LevoOnly)) %>% 
@@ -235,7 +228,7 @@ ids_levoonly <- df_varying_tv %>%
   .$id %>% unique
 #length(ids_levoonly)
 
-df_varying_tv %>% 
+df_varying_selected %>% 
   filter(id %in% ids_levoonly) %>% 
   group_by(id) %>% 
   filter(PDMEDYN,!lag(PDMEDYN)) %>% 
@@ -245,7 +238,7 @@ df_varying_tv %>%
 
 How many started on Levodopa and used nothing else?
 ```{r}
-ids_levoonly <- df_varying_tv %>%
+ids_levoonly <- df_varying_selected %>%
   mutate(LevoOnly=PD_MED_USE %in% c(0,NA,1)) %>% 
   group_by(id) %>% 
   summarize(LevoOnly=all(LevoOnly)) %>% 
@@ -254,7 +247,7 @@ ids_levoonly <- df_varying_tv %>%
   .$id %>% unique
 length(ids_levoonly)
 
-df_varying_tv %>% 
+df_varying_selected %>% 
   filter(id %in% ids_levoonly) %>% 
   group_by(id) %>% 
   filter(ONLDOPA,!lag(ONLDOPA)) %>% 
@@ -263,11 +256,11 @@ df_varying_tv %>%
 ```
  How many started on Levodopa and what combination did they start on?
 ```{r}
-df_varying_tv %>% 
+df_varying_selected %>% 
   filter(PDMEDYN, ONLDOPA,!lag(PDMEDYN)) %>% 
   nrow
 
-# Ask Lieneke: some "other"" are also ONLDOPA?  
+# Some "other"" are also ONLDOPA?  
 df_varying %>% 
   group_by(id) %>% 
   filter(PDMEDYN, ONLDOPA,!lag(PDMEDYN)) %>% 
@@ -277,21 +270,21 @@ df_varying %>%
 
 How many part four measurements are available after 2 years?
 ```{r}
-ids_levo_starters <- df_varying_tv %>% 
+ids_levo_starters <- df_varying_selected %>% 
   group_by(id) %>% 
   filter(PDMEDYN, ONLDOPA,!lag(PDMEDYN)) %>% 
   ungroup %>% 
   .$id %>% unique
 length(ids_levo_starters)
 
-ids_stopped <- df_varying_tv %>% 
+ids_stopped <- df_varying_selected %>% 
   group_by(id) %>% 
   filter(!PDMEDYN, lag(PDMEDYN,default = FALSE)) %>% 
   ungroup
 
 length(setdiff(ids_levo_starters,ids_stopped))
 
-df_varying_tv %>% 
+df_varying_selected %>% 
   filter(id %in% setdiff(ids_levo_starters,ids_stopped)) %>% 
   filter(time==4) %>% 
   count(is.na(MDS_UPDRS_IV))
@@ -299,11 +292,11 @@ df_varying_tv %>%
 
 How many missings for part 4 for when considering starters in general?
 ```{r}
-ids_starters <- df_varying_tv %>% 
+ids_starters <- df_varying_selected %>% 
   filter(PDMEDYN,!lag(PDMEDYN)) %>% 
   .$id
 
-df_varying_tv %>% 
+df_varying_selected %>% 
   filter(id %in% ids_starters) %>% 
   filter(time==4) %>% 
   filter(!censored) %>% 
@@ -339,21 +332,24 @@ df_varying %>%
 
 How many already started, how many censored during?
 ```{r}
-df_t <- df_varying_tv %>% 
+df_t <- df_varying_selected %>% 
   arrange(id,time) %>% 
   gather(treatment_name,treatment, ONLDOPA, PDMEDYN, censored) 
 
 df_therapy <- df_t %>% group_by(id,treatment_name) %>% summarize(years_treatment=sum(treatment)/2) %>% ungroup
 
 df_therapy %>% count(treatment_name,years_treatment) %>% spread(treatment_name,n)
+
+df_therapy %>% filter(treatment_name=="PDMEDYN") %>% left_join(df_constant_selected,by="id") %>% count(years_treatment,CV_HISTORY) %>% 
+  group_by(years_treatment) %>% mutate(perc=n/sum(n)) %>% ungroup %>% filter(CV_HISTORY==1)
 ```
 
 How many censored on outcome
-how many left + does this correspond to numbers used in analyses?
+How many left + does this correspond to numbers used in analyses?
 
 ```{r}
-df_constant_tv %>% summarise_all(~sum(is.na(.x))) %>% gather
-# df_constant_tv %>% select(censored_year2,starts_with("MDS"),starts_with("MSEADLG"),starts_with("MoCA")) %>%
+df_constant_selected %>% summarise_all(~sum(is.na(.x))) %>% gather
+# df_constant_selected %>% select(censored_year2,starts_with("MDS"),starts_with("MSEADLG"),starts_with("MoCA")) %>%
 #   gather("v","l",-censored_year2) %>% 
 #   group_by(v) %>% 
 #   summarize(miss=sum(is.na(l)), msscen=sum(is.na(l) & is.na(censored_year2)))
@@ -362,7 +358,7 @@ df_constant_tv %>% summarise_all(~sum(is.na(.x))) %>% gather
 Number of starters
 ```{r}
 df_varying %>% 
-  left_join(df_constant_tv, by="id") %>% 
+  left_join(df_constant_selected, by="id") %>% 
   #filter(EVENT_ID %in% events) %>% 
   filter(Group=="PD") %>% 
   #mutate(EVENT_ID=fct_relevel(EVENT_ID, c("SC","BL",paste0("V0",1:9),paste0("V",10:13),"ST"))) %>% 
