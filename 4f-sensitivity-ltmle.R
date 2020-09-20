@@ -120,7 +120,7 @@ run_bootstrap_tmle <- function(df_varying,df_constant,df_l, models=NULL, repeats
   },.progress = TRUE) %>% bind_rows(.id="rep")
 }
 
-run_once_tmle <- function(df_varying,df_c,df_l,models=NULL) {
+run_once_tmle <- function(df_varying,df_c,df_l,models=NULL, return_model=FALSE) {
   data_lt <- df_varying %>% select(id, time, MDS_UPDRS_I, MDS_UPDRS_II, MDS_UPDRS_III_other, PDMEDYN, MSEADLG, MoCA) %>% #add censored
     mutate(PDMEDYN=as.integer(PDMEDYN)) %>% 
     pivot_wider(id_cols="id", names_from="time", values_from = c("PDMEDYN","MDS_UPDRS_I","MDS_UPDRS_II","MDS_UPDRS_III_other","MSEADLG","MoCA")) %>% 
@@ -138,7 +138,7 @@ run_once_tmle <- function(df_varying,df_c,df_l,models=NULL) {
   
   regimes <- getreg(nrow(data_lt))
   data_sel <- data_lt[,-c(27:31)]
-  
+  #browser()
   res1 <- ltmleMSM(data=data_sel, 
                    Anodes=grep("^PDMEDYN", names(data_sel)),
                    Cnodes = "censored",
@@ -163,9 +163,13 @@ run_once_tmle <- function(df_varying,df_c,df_l,models=NULL) {
                    working.msm = "Y ~ totaltime + MDS_UPDRS_III_other_0",
                    final.Ynodes="MDS_UPDRS_III_off_year2",
                    iptw.only = FALSE, gcomp=FALSE, msm.weights = NULL)
-  res1$fit <- NULL
-  res2$fit <- NULL
-  return(list("gform"=res1$beta[2], "tmle"=res2$beta[2], "iptw"= res1$beta.iptw[2]))
+  #res1$fit <- NULL
+  #res2$fit <- NULL
+  
+  ret <- list("gform"=res1$beta[2], "tmle"=res2$beta[2], "iptw"= res1$beta.iptw[2])
+  if (return_model) { attr(ret,"tmle") <- res2 }
+  
+  return(ret)
 }
 
 
@@ -176,8 +180,9 @@ res_glm <- run_once_tmle(df_v_PDMEDYN, df_c_PDMEDYN, df_l_PDMEDYN_with_na, model
 bs_glm <- run_bootstrap_tmle(df_v_PDMEDYN, df_c_PDMEDYN, df_l_PDMEDYN_with_na, models=NULL, repeats=n_repeats)
 save.image(out_path)
 
+set.seed(1210)
 print("tmle with glm, rf and bayesglm")
-res_sl <- run_once_tmle(df_v_PDMEDYN, df_c_PDMEDYN, df_l_PDMEDYN_with_na, models=list("SL.glm", "SL.randomForest", "SL.bayesglm"))
+res_sl <- run_once_tmle(df_v_PDMEDYN, df_c_PDMEDYN, df_l_PDMEDYN_with_na, models=list("SL.glm", "SL.randomForest", "SL.bayesglm"), return_model=TRUE)
 bs_sl <- run_bootstrap_tmle(df_v_PDMEDYN, df_c_PDMEDYN, df_l_PDMEDYN_with_na, models=list("SL.glm", "SL.randomForest", "SL.bayesglm"), repeats=n_repeats)
 save.image(out_path)
 

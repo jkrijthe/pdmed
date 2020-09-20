@@ -45,7 +45,9 @@ mod_rf <- function(form, data, family=NULL, always.split.vars=c("treatment_lag1"
     }
   }
   
-  obj <- randomForest(form, data,nodesize=10,na.action=na.omit)
+  obj <- randomForest(form, data,na.action=na.omit)
+  #randomForest(form, data,nodesize=1,na.action=na.omit)
+  #browser()
   obj$treat_name <- treat_name
   obj
   #glm(form, data=data, family=binomial(link="logit"))

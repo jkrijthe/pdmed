@@ -69,12 +69,12 @@ All patients were assessed at the time of screening, at baseline (within 45 days
   \end{tikzpicture}
 ```
 
-A simplified version of the underlying causal model we assume in this work is shown in Figure 1S. L in this figure denotes the time-varying confounders at each stage. These are formed by patient characteristics at each visit, and we assume they are adequately captured by the MDS-UPDRS part scores, MoCA and MSE-ADL in addition to the background characteristics of the patient: Age, Sex, Years of Education, disease duration and whether the history of cardiovascular disease. An important insight from this model is that merely correcting for baseline measurements and characteristics is not enough to estimate the causal effect of intervening on the length of therapy in the first two years. Failing to properly adjust for the patient characteristics at each treatment decision could, for instance, improperly attribute longer therapy with bad outcomes, simply because the groups of patients that started medication therapy earlier, already had a more advanced state of the disease when the decision to start medication therapy was made. This confounding effect is known as time-varying confounding. The inverse probability of treatment weighting (IPTW) and parametric g-formula methods used in this work offer a  way to adjust for this time-varying confounding, either by reweighting patients in such a way that in the reweighted sample the chance of receiving each treatment no longer depends on the covariates at each stage, or by modelling and simulating disease trajectories under all possible treatment assignments for each patient.
+A simplified version of the underlying causal model we assume in this work is shown in Figure 1S. L in this figure denotes the time-varying confounders at each stage. These are formed by patient characteristics at each visit, and we assume they are adequately captured by the MDS-UPDRS part scores, MoCA and MSE-ADL in addition to the background characteristics of the patient: Age, Sex, Years of Education, disease duration and history of cardiovascular disease. An important insight from this model is that merely correcting for baseline measurements and characteristics is not enough to estimate the causal effect of intervening on the length of therapy in the first two years. Failing to properly adjust for the patient characteristics at each treatment decision could, for instance, improperly attribute longer therapy with bad outcomes, simply because the groups of patients that started medication therapy earlier, already had a more advanced state of the disease when the decision to start medication therapy was made. This confounding effect is known as time-varying confounding. The inverse probability of treatment weighting (IPTW) and parametric g-formula methods used in this work offer a  way to adjust for this time-varying confounding, either by reweighting patients in such a way that in the reweighted sample the chance of receiving each treatment no longer depends on the covariates at each stage, or by modelling and simulating disease trajectories under all possible treatment assignments for each patient.
 
 ## IPTW models
 
 In IPTW, different weights are assigned to different patients to correct for the fact that the probability of starting treatment is not equal for each patient, like in a randomized experiment, but is influenced by the current disease state. Weighting patients differently is a way of equalizing these probabilities in the observational data to estimate what would have happened if the treatment initiation was properly randomized.
-To find the weights, at each visit we estimate the prior probability of starting treatment for those that have not started yet, which will be used to stabilize the weights. We then estimate the probability of starting treatment for those that have not started yet given the untransformed covariates (age, sex, years of education, disease duration, a binary indicator for history of cardiovascular disease, MDS-UPDRS part I, II and III scores scores, MSE-ADL scores and, if available, MoCA score) of only the previous visit, using a linear logistic regression model. Note that we do not pool the data across visits, which allows the model to be different for the different visits.
+To find the weights, at each visit we estimate the prior probability of starting treatment for those that have not started yet, which will be used to stabilize the weights. We then estimate the probability of starting treatment for those that have not started yet given the untransformed covariates (age, sex, years of education, disease duration, a binary indicator for history of cardiovascular disease, MDS-UPDRS part I, II and III scores, MSE-ADL scores and, if available, MoCA score) of only the previous visit, using a linear logistic regression model. Note that we do not pool the data across visits, which allows the model to be different for the different visits.
 
 We divide the prior of the observed decision (started vs. not-started) by the probability of the observed decision given by this logistic regression model. By multiplying these weights for the different time-points, we get a final weight that is used for estimating the working marginal structural model. 
 For censoring in the IPTW models, we use the same procedure as for the treatment weights, and multiply the censoring weight by the weight given by the treatment models to get an overall weight which we use in the working marginal structural model.
@@ -84,7 +84,7 @@ Finally, we use a linear regression model both for the continuous as well as for
 
 
 ## Parametric g-formula models
-When using the parametric g-formula, the goal was to estimate the effect of an intervention by constructing a model of disease progression over time, and we then used this model to simulate the effect of different interventions on the outcomes, starting from the observed values at baseline. We constructed models for the confounders and outcomes at each visit, based on data from the previous visit and the patient’s treatment status, using linear regression models. We allow for treatments earlier than the current visit to influence the prediction of the next observation. These links are not shown in the causal model, but are reflected in the fitted model which contain the observed values of the covariates at the previous available time-point (and the baseline measurements, for the predictions at the final time-point) and all available previous treatment decisions. The variables that are included are treatment status, age, sex, years of education, disease duration, an indicator for the presence of cardiovascular disease, MDS-UPDRS part I, II and III scores, MSE-ADL and, for yearly measurements, MoCA score. To take the correlations between the time-varying covariates at each time point into account, we iteratively add the variables for the current time-point to the models, in the order just mentioned. For instance, the model to generate the current MDS-UPDRS part I score only contains variables from the previous visit, while the model for the current part II score includes the current part I score, and the model for the part III score includes the current part I and part II scores. Using these models, for each patient from the subpopulation of interest, for each of the 5 possible treatment decisions decisions (starting therapy at year 0, 0.5, 1, 1.5 or 2), we simulate 100 trajectories for the covariates and outcomes, which, in the analysis where we consider 5 options for the treatment length and the whole sample at baseline, gives (416*5*100=208000) trajectories. 
+When using the parametric g-formula, the goal was to estimate the effect of an intervention by constructing a model of disease progression over time, and we then used this model to simulate the effect of different interventions on the outcomes, starting from the observed values at baseline. We constructed models for the confounders and outcomes at each visit, based on data from the previous visit and the patient’s treatment status, using linear regression models. We allow for treatments earlier than the current visit to influence the prediction of the next observation. These links are not shown in the causal model in Figure 1S, but are reflected in the fitted model which contain the observed values of the covariates at the previous available time-point (and the baseline measurements, for the predictions at the final time-point) and all available previous treatment decisions. The variables that are included are treatment status, age, sex, years of education, disease duration, an indicator for the presence of cardiovascular disease, MDS-UPDRS part I, II and III scores, MSE-ADL and, for yearly measurements, MoCA score. To take the correlations between the time-varying covariates at each time point into account, we iteratively add the variables for the current time-point to the models, in the order just mentioned. For instance, the model to generate the current MDS-UPDRS part I score only contains variables from the previous visit, while the model for the current part II score includes the current part I score, and the model for the part III score includes the current part I and part II scores. Using these models, for each patient from the subpopulation of interest, for each of the 5 possible treatment decisions decisions (starting therapy at year 0, 0.5, 1, 1.5 or 2), we simulate 100 trajectories for the covariates and outcomes, which, in the analysis where we consider 5 options for the treatment length and the whole sample at baseline, gives (416\*5\*100=208000) trajectories. 
 We use the same working marginal structural model on these simulated outcomes as used in the IPTW method to generate the final estimates.
 
 ## Missing data
@@ -394,7 +394,7 @@ process_results <- function(.x) {
 ```
 
 
-## Figure 2S. MDS-UPDRS I, II, III, MoCA, MSEADL, SCOPA-AUT – Any PD medication - only starters
+## Figure 2S. MDS-UPDRS I, II, III, MoCA, MSEADL, SCOPA-AUT – Any PD medication - Only starters
 ```{r fig.asp=0.5, fig.cap="Figure 2S: Effect of a year of PD treatment (any medication) during the first two years of follow-up (estimated using only those patients who were using medication at the time of the outcome measurement). Effect on the score of different outcomes measured at year 2, 3 and 4."}
 plot_bootstrap(
   full_results_PDMEDYN_started %>% process_results,
@@ -411,7 +411,7 @@ plot_bootstrap(
 ```
 
 ## Figure 4S. MDS-UPDRS I, II, III, MoCA, MSEADL, SCOPA-AUT – Only levodopa - Only starters
-```{r fig.asp=0.5, fig.cap="Figure 5S: Effect of a year of PD treatment (exclusively levodopa) during the first two years of follow-up (estimated using only those patients who used levodopa exclusively during the first two years). Effect on the score of different outcomes measured at year 2, 3 and 4."}
+```{r fig.asp=0.5, fig.cap="Figure 4S: Effect of a year of PD treatment (exclusively levodopa) during the first two years of follow-up (estimated using only those patients who used levodopa exclusively during the first two years). Effect on the score of different outcomes measured at year 2, 3 and 4."}
 plot_bootstrap(
   full_results_onldopa_levoonly %>% process_results,
   bs_onldopa_levoonly %>% process_results
@@ -439,7 +439,7 @@ process_results_aux <- function(.x) {
 
 ## Figure 5S. Dyskinesias, motor fluctuations, QUIP – Any PD medication - Only starters
 
-```{r fig.asp=0.4, fig.width=9, fig.cap="Figure 5S: Effect of a year of PD treatment (any medication) during the first two years of follow-up (estimated using only those patients who were using medication at the time of the outcome measurement). Effect on the score of different outcomes measured at year 2, 3 and 4."}
+```{r fig.asp=0.4, fig.width=9, fig.cap="Figure 5S: Effect of a year of PD treatment (any medication) during the first two years of follow-up (estimated using only those patients who were using medication at the time of the outcome measurement). Effect on the score of different outcomes measured at year 2, 3 and 4. 'QUIP any' is a binary indicator of whether any of the behaviours in the QUIP questionnaire is present, while 'QUIP sum' refers to the total number of behaviours present (maximum of 8)."}
 plot_bootstrap(
   full_results_PDMEDYN_started %>% process_results_aux,
   bs_pdmedyn_started %>% process_results_aux
@@ -448,7 +448,7 @@ plot_bootstrap(
 
 ## Figure 6S. Dyskinesias, motor fluctuations, QUIP – Any PD medication - Whole population
 
-```{r fig.asp=0.4, fig.width=9, fig.cap="Figure 6S: Effect of a year of PD treatment (any medication)  during the first two years of follow-up (extrapolated to the whole study population). Effect on the score of different outcomes measured at year 2, 3 and 4."}
+```{r fig.asp=0.4, fig.width=9, fig.cap="Figure 6S: Effect of a year of PD treatment (any medication)  during the first two years of follow-up (extrapolated to the whole study population). Effect on the score of different outcomes measured at year 2, 3 and 4.  'QUIP any' is a binary indicator of whether any of the behaviours in the QUIP questionnaire is present, while 'QUIP sum' refers to the total number of behaviours present (maximum of 8)."}
 plot_bootstrap(
   full_results_PDMEDYN_extra %>% process_results_aux,
   bs_pdmedyn_extra %>% process_results_aux
@@ -456,7 +456,7 @@ plot_bootstrap(
 ```
 
 ## Figure 7S. Dyskinesias, motor fluctuations, QUIP – Only levodopa - Only starters
-```{r fig.asp=0.4, fig.width=9, fig.cap="Figure 7S: Effect of a year of PD treatment (exclusively levodopa) during the first two years of follow-up (estimated using only those patients who used levodopa exclusively during the first two years). Effect on the score of different outcomes measured at year 2, 3 and 4."}
+```{r fig.asp=0.4, fig.width=9, fig.cap="Figure 7S: Effect of a year of PD treatment (exclusively levodopa) during the first two years of follow-up (estimated using only those patients who used levodopa exclusively during the first two years). Effect on the score of different outcomes measured at year 2, 3 and 4.  'QUIP any' is a binary indicator of whether any of the behaviours in the QUIP questionnaire is present, while 'QUIP sum' refers to the total number of behaviours present (maximum of 8)."}
 plot_bootstrap(
   full_results_onldopa_levoonly %>% process_results_aux,
   bs_onldopa_levoonly %>% process_results_aux
@@ -465,7 +465,7 @@ plot_bootstrap(
 
 
 # Non-linearity of the effect
-In the results above we assumed in the marginal structural model that the effect of treatment was linear: adding half a year of treatment has the same effect regardless of whether one goes from 0 years of treatment to 0.5 year of treatment or from 1.5 years of treatment to 2 year of treatment. Here we estimate how the effect differs for different time points. "Treatment @ 2" refers to having treatment at year 2 (so in the final six months), Treatment 1.5 is between year 1 and 1.5, etc.
+In the results above we assumed in the marginal structural model that the effect of treatment was linear: adding half a year of treatment has the same effect regardless of whether one goes from 0 years of treatment to 0.5 year of treatment or from 1.5 years of treatment to 2 years of treatment. Here we estimate how the effect differs for different time points. "Treatment @ 2" refers to having treatment at year 2 (so in the final six months), Treatment 1.5 is between year 1 and 1.5, etc.
 
 
 
@@ -485,15 +485,15 @@ process_results <- function(.x) {
 }
 ```
 
-## Figure 8S. Non-linearity of the effect IPTW – Only starters
-```{r fig.asp=0.4, fig.cap="Figure 8S: Additive effect of treatment (any medication) being active at different time-points during the first two years for the IPTW model for only those patients who had started medication treatment at the time of the outcome measurement (hence all have active treatment at time 2). Effect on the score of different outcomes measured at year 2, 3 and 4."}
+## Figure 8S. Non-linearity of the effect – IPTW – Only starters
+```{r fig.asp=0.4, fig.cap="Figure 8S: Additive effect of treatment (any medication) being active at different time-points during the first two years for the IPTW model for only those patients who had started medication treatment at the time of the outcome measurement (hence, for the outcome at year 2, all included patients have active treatment at year 2). Effect on the score of different outcomes measured at year 2, 3 and 4."}
 plot_bootstrap(
   full_results_PDMEDYN_started %>% process_results,
   bs_pdmedyn_started %>% process_results
 )
 ```
 
-## Figure 9S. Non-linearity of the effect g-formula – Only starters
+## Figure 9S. Non-linearity of the effect – g-formula – Only starters
 ```{r fig.asp=0.4, fig.cap="Figure 9S: Additive effect of treatment (any medication)  being active at different time-points during the first two years for the g-formula model  (estimated using those patients who had started medication treatment at the time of the outcome measurement). Effect on the score of different outcomes measured at year 2, 3 and 4."}
 process_results <- function(.x) {
   .x %>% 
@@ -518,9 +518,9 @@ plot_bootstrap(
 
 
 # Effect modification
-To estimate the potential modification of the effect of different baseline characteristics of the patient, using the inverse probability of treatment weights for each outcome/year we estimate a marginal structural model containing main effects and interaction terms with treatment length for age, sex, disease duration and three MDS-UPDRS subscores at baseline in a single model.
+To estimate the potential modification of the effect for different baseline characteristics of the patient, using the inverse probability of treatment weights for each outcome/year we estimate a working marginal structural model containing main effects and interaction terms of treatment length with age, sex, disease duration and three MDS-UPDRS subscores at baseline in a single model.
 
-```{r fig.cap="Figure 10S: Interaction effects in the IPTW Marginal Structural Model (main effects not shown), for the length of PD treatment (any medication) in the first two years of follow-up, estimated using patients who had started medication therapy at the time of the outcome measurement."}
+```{r fig.cap="Figure 10S: Interaction effects in the IPTW Marginal Structural Model (main effects not shown), of the length of PD treatment (any PD medication) in the first two years of follow-up, on MDS UPDRS Part I, II and III, after 2, 3 and 4 years of follow-up, estimated using patients who had started medication therapy at the time of the outcome measurement."}
 process_results <- function(.x) {
   .x %>% 
     filter(Model=="IPW_msms_interaction") %>% 
@@ -574,7 +574,7 @@ plot_bootstrap(
 
 # Treatment Probability Weights
 
-An important assumption for the causal effect of interest to be identified is the positivity assumption of the different treatments: for each treatment decision, both starting treatment and non-treatment have to have a positive probability of occuring, for all strata and interventions in the population of interest. Apart from identifiability issues, small treatment probabilities can also cause estimation issues in inverse probability weighting, since they lead to some observations receiving large weights. For our main analysis (MDS UPDRS part III, measured at year 2), we report the distribution of the estimated probability of the assigned treatment, estimated probability of non-censoring, and the final stabilized weight used in our working marginal structural model. The bi-modal distribution in the propensity scores for treatment seems to be caused by the changing prior of starting treatment for the different time points. Because of the use of stabilized weights (where we multiply by the prior probability of the observed treatment assignment), the stabilized inverse probability weights do not show this strong bi-modality.
+An important assumption for the causal effect of interest to be identified is the positivity assumption of the different treatments: for each treatment decision, both starting treatment and non-treatment have to have a positive probability of occuring, for all strata in the population of interest. Apart from identifiability issues, small treatment probabilities can also cause estimation issues in inverse probability weighting, since they lead to some observations receiving large weights. For our main analysis (MDS UPDRS part III, measured at year 2), we report the distribution of the estimated probability of the assigned treatment, estimated probability of non-censoring, and the final stabilized weight used in our working marginal structural model. The bi-modal distribution in the propensity scores for treatment seems to be caused by the changing prior of starting treatment for the different time points. Because of the use of stabilized weights (where we multiply by the prior probability of the observed treatment assignment), the stabilized inverse probability weights do not show this strong bi-modality.
 
 ```{r fig.cap="Figure 11S: Estimated probabilities of observed treatment and non-censoring for the IPTW model for MDS-UPDRS Part III Off scores at year 2 (estimated using only those patients who were using medication at the time of the outcome measurement)."}
 load("data/sensitivity.RData")
@@ -601,7 +601,7 @@ df_w %>%
 ```
 
 
-```{r fig.cap="Figure 12S: Estimated inverse probability weights for the IPTW model for MDS-UPDRS Part III Off scores at year 2 (estimated using only those patients who were using medication at the time of the outcome measurement)."}
+```{r fig.cap="Figure 12S: Estimated stabilized inverse probability weights for the IPTW model for MDS-UPDRS Part III Off scores at year 2 (estimated using only those patients who were using medication at the time of the outcome measurement)."}
 df_w %>% group_by(id) %>% 
               summarize(w=exp(sum(logweight))) %>% 
               ungroup %>% 
@@ -618,13 +618,15 @@ df_w %>% group_by(id) %>%
 
 # Sensitivity to alternative model specifications
 
-Constructing models of complex disease and decision processes using limited data requires trade-offs in bias and variance of the model estimates. In the main analyses, we have focused on simple linear logistic and linear regression models, using a limited history of measurements (usually constrained to the previous measurements and constant patient characteristics, rather than a longer measurement history). Here we investigate the effect of making different choices in the probability of treatment and censoring modelling.
+Constructing models of complex disease and decision processes using limited data requires trade-offs in bias and variance of the model estimates. In the main analyses, we have focused on simple linear logistic and linear regression models, using a limited history of measurements (usually constrained to the previous measurements and constant patient characteristics, rather than a longer measurement history). Here we investigate the effect of making different choices in the probability of treatment modelling.
 
-We report the results of the IPTW estimates at year 2 when taking only the previous measurement into account (as in our main results, denoted here as "Markov" to reflect the Markov assumption), when taking full measurement history into account while still using linear logistic regression models (denoted as "Non-Markov"), as well as when using this full history for a non-parametric model, in this case a random forest classifier (denoted as "Non-parametric"). For the random forest classifier, we make use of R's "randomForest" package with 500 trees, and a minimum node size of 10.
+We report the results of the IPTW estimates at year 2 when taking only the previous measurement into account (as in our main results, denoted here as "Markov" to reflect the Markov assumption), when taking full measurement history into account while still using linear logistic regression models (denoted as "Non-Markov"), as well as when using this full history for a non-parametric model, in this case a random forest classifier (denoted as "Non-parametric"). For the random forest classifier, we make use of R's "randomForest" package, using the default settings, without cross-validation: 500 trees, a minimum node size 1, and the square root of the number of variables as the number of variables considered at each split. These defaults are also used in the "SuperLearner" implementation that we discuss in the next section. 
 
-The results show the increased variance caused by the larger number of features in the unregularized models. The non-parametric models lead to smaller estimated variances, which do not alter the conclusion on the main MDS UPDRS Part III outcome, but does suggest some negative effects of longer treatment on other outcomes, such as Part I scores.
+The results show the increased variance caused by the larger number of features in the unregularized models. The non-parametric models lead to similar point estimates as our main analysis. We do not report the estimated confidence interval for these models, as these would likely be an underestimate of the true uncertainty.
 
 ```{r}
+load("data/sensitivity.RData")
+
 change_names <- function(df) { df %>% 
       separate(outcome,c("Outcome","Year"),sep = "_year") %>% unite("Model", modelname) 
   }
@@ -653,13 +655,13 @@ res_all <- bind_rows(
 bs_all <- bind_rows(
   bs_results_markov_y2 %>% change_names %>% summ_stats %>% mutate(method="Markov"),
   bs_results_nonmarkov_y2 %>% change_names %>% summ_stats %>% mutate(method="Non-Markov"),
-  bs_results_np_rf_y2 %>% change_names %>% summ_stats %>% mutate(method="Non-parametric"),
+  #bs_results_np_rf_y2 %>% change_names %>% summ_stats %>% mutate(method="Non-parametric"),
   bs_results_markov_y3 %>% change_names %>% summ_stats %>% mutate(method="Markov"),
   bs_results_nonmarkov_y3 %>% change_names %>% summ_stats %>% mutate(method="Non-Markov"),
-  bs_results_np_rf_y3 %>% change_names %>% summ_stats %>% mutate(method="Non-parametric"),
+  #bs_results_np_rf_y3 %>% change_names %>% summ_stats %>% mutate(method="Non-parametric"),
   bs_results_markov_y4 %>% change_names %>% summ_stats %>% mutate(method="Markov"),
   bs_results_nonmarkov_y4 %>% change_names %>% summ_stats %>% mutate(method="Non-Markov"),
-  bs_results_np_rf_y4 %>% change_names %>% summ_stats %>% mutate(method="Non-parametric")
+  #bs_results_np_rf_y4 %>% change_names %>% summ_stats %>% mutate(method="Non-parametric")
 )
 ```
 
@@ -708,9 +710,9 @@ plot_bootstrap(
 
 # Targeted Maximum Likelihood Estimation
 
-In our main analysis, we report on the performance of linear working MSMs with inverse probability weighting, as well as estimates using the parametric g-formula, and interpret the combination of their resulting estimates. An alternative is to combine these approaches into a single doubly robust estimate, with the guarantee that if either the probability of treatment model or the disease progression model (or both) is correctly specified, the combined estimator is a consistent estimator for the causal effect of interest. One elegant and efficient procedure to do this is targeted maximum likelihood estimation (van der Laan, M. J. (2010). Targeted maximum likelihood based causal inference: Part I. The international journal of biostatistics, 6(2).). We have attempted to apply this method to our problem by using the ltmle R package (Lendle, S. D., Schwab, J., Petersen, M. L., & van der Laan, M. J. (2017). ltmle: an R package implementing targeted minimum loss-based estimation for longitudinal data. Journal of Statistical Software, 81(1), 1-21.). While this package covers a large number of modelling scenarios, it does not exactly map on to the problem setup we used in our main analyses, which makes it challenging to directly compare the results. Most importantly, the package uses logistic regression models on transformed outcomes (where outcomes are mapped to be in [0,1]) as the working MSM. While being an interesting modelling choice, the  coefficients in these models do not directly correspond to the coefficients of the linear working MSM that we use in the main analyses. 
+In our main analysis, we report on the performance of linear working MSMs with inverse probability weighting, as well as estimates using the parametric g-formula, and interpret the combination of their resulting estimates. An alternative is to combine these approaches into a single doubly robust estimate, with the guarantee that if either the probability of treatment model or the disease progression model (or both) is correctly specified, the combined estimator is a consistent estimator for the causal effect of interest. One elegant and efficient procedure to do this is targeted maximum likelihood estimation (van der Laan, M. J. (2010). Targeted maximum likelihood based causal inference: Part I. The international journal of biostatistics, 6(2).). We have attempted to apply this method to our problem by using the ltmle R package (Lendle, S. D., Schwab, J., Petersen, M. L., & van der Laan, M. J. (2017). ltmle: an R package implementing targeted minimum loss-based estimation for longitudinal data. Journal of Statistical Software, 81(1), 1-21.). While this package covers a large number of modelling scenarios, it does not exactly map on to the problem setup we used in our main analyses, which makes it challenging to directly compare the results. Most importantly, the package uses logistic regression models on transformed outcomes (where outcomes are mapped to be in [0,1]) as the working MSM. While being an interesting modelling choice, the  coefficients in these models do not directly correspond to the coefficients of the linear working MSM that we report in the main analyses. 
 
-The figure below shows the results of the estimates using the ltmle package for MDS UPDRS Part III off scores at the end of year 2, in a working MSM that includes the baseline MDS UPDRS Part III scores. The propensity score and "Q" models include all previous measurements of the covariates (described as the "Non-Markov" setting in the previous section). We use both logistic regression for these models (results shown at the top of the figure) as well as a combination of logistic regression, Bayesian logistic regression and random forest models, that are combined using the SuperLearner package (see Van der Laan, M. J., Polley, E. C., & Hubbard, A. E. (2007). Super learner. Statistical applications in genetics and molecular biology, 6(1). and Polley, E., LeDell, E., Kennedy, C., Lendle, S., & van der Laan, M. (2019). Package ‘SuperLearner’.  https://CRAN.R-project.org/package=SuperLearner).
+The figure below shows the results of the estimates using the ltmle package for MDS UPDRS Part III off scores at the end of year 2, in a working MSM that includes the baseline MDS UPDRS Part III scores. The propensity score and "Q" models include all previous measurements of the covariates (described as the "Non-Markov" setting in the previous section). We use both logistic regression for these models (results shown at the top of the figure) as well as a combination of logistic regression, Bayesian logistic regression and random forest models, that are combined using the SuperLearner package (see Van der Laan, M. J., Polley, E. C., & Hubbard, A. E. (2007). Super learner. Statistical applications in genetics and molecular biology, 6(1). and Polley, E., LeDell, E., Kennedy, C., Lendle, S., & van der Laan, M. (2019). Package ‘SuperLearner’.  https://CRAN.R-project.org/package=SuperLearner). For the SuperLearner model, Table 3S shows the contribution of the different models to the propensity score estimates at the different time points.
 
 ```{r fig.asp=1, fig.width=3, fig.cap="Figure 14S: Effect estimate of PD treatment (any medication) during the first two years of follow-up on outcomes at year 2 (estimated using only those patients who were using medication at the time of the outcome measurement) on MDS UPDRS Part III using the ltmle package for estimation. Note that the working MSM is a logistic regression model on the scaled outcomes, and the estimated beta is the parameter in this model, not the slope in the linear MSM used in the main analysis."}
 load("data/sensitivity_tmle.RData")
@@ -727,28 +729,45 @@ df_glm <- res_glm %>%
 df_sl <- res_sl %>% 
   data.frame %>% 
   gather("Method","Estimate") %>% 
-  left_join(
-    bs_glm %>% 
-      gather("Method","Estimate",-rep) %>% 
-      group_by(Method) %>% 
-      summarize(sd=sd(Estimate)),
-  by="Method") %>% mutate(Model="SuperLearner")
+  # left_join(
+  #   bs_sl %>%
+  #     gather("Method","Estimate",-rep) %>%
+  #     group_by(Method) %>%
+  #     summarize(sd=sd(Estimate)),
+  # by="Method") %>%
+mutate(Model="SuperLearner")
 
 bind_rows(df_glm,df_sl) %>% 
   mutate(Method= fct_collapse(fct_rev(fct_relevel(Method,"iptw","gform","tmle")), "IPTW"="iptw", gformula="gform","TMLE"="tmle")) %>% 
   ggplot(aes(x=Estimate,y=Method,color=Method)) +
   geom_point() +
-  geom_errorbarh(aes(xmin=Estimate-2*sd,xmax=Estimate+2*sd,y=Method),height=0) +
+  geom_errorbarh(aes(xmin=Estimate-2*sd,xmax=Estimate+2*sd,y=Method),height=0,na.rm = TRUE) +
   facet_wrap(Model~.,ncol=1) +
   geom_vline(xintercept=0) +
   theme_bw() +
     theme(legend.position="none",
           panel.grid.major = element_line(linetype = 2,size=0.2),
+          panel.grid.minor = element_line(linetype = 2,size=0.2),
           strip.background = element_rect(fill="white"),
           text=element_text(family="Lato")
           ) +xlab("beta")+ylab("")
 
 ```
+
+```{r}
+tb <- attr(res_sl,"tmle")$fit$g[[1]] %>% 
+  as.data.frame() %>% select(contains("Coef")) %>% 
+  t
+
+rownames(tb) <- c("Treatment @ 0.5y", "Treatment @ 1y",
+            "Treatment @ 1.5y", "Outcome Censored")
+colnames(tb) <- c("GLM","Random Forest","BayesGLM")
+
+tb %>% 
+  kable(caption="Table 3S: Weights of the different base models in the SuperLearner model for the propensity scores",digits = 2)
+```
+
+
 ```{r eval=FALSE}
 # Example effect size
 params <- c(-1.4287262,-0.3324097,0.0621267)
