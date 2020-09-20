@@ -320,11 +320,13 @@ plot_bootstrap_compact <- function(df_res, df_boot) {
     geom_point(position=position_dodge(.5),size=2) +
     #geom_pointrange(aes(ymin=estimate-2*sd,ymax=estimate+2*sd),position=position_dodge(.5)) +
     geom_errorbarh(aes(xmin=estimate-2*sd,xmax=estimate+2*sd),position=position_dodge(.5),height=0) +
-    coord_cartesian(xlim=c(-10,10)) +
+    scale_x_continuous(breaks=seq(-20,10,by=5)) +
+    coord_cartesian(xlim=c(-22,10)) +
     theme_bw() +
     theme(text=element_text(family="Lato"), 
           legend.position="bottom",
           panel.grid.major = element_line(linetype = 2,size=0.2),
+          panel.grid.minor = element_line(linetype = 2,size=0.2),
           strip.background = element_rect(fill="white")) +
     xlab("") +ylab("Year") +
     facet_grid(Outcome~dataset,labeller = function(.x) {label_value(.x,multi_line = FALSE)}) +
@@ -434,12 +436,14 @@ plot_bootstrap_aux <- function(df_res, df_boot) {
     theme_bw() +
     theme(text=element_text(family="Lato"), 
           legend.position="none",
-          panel.spacing.x=unit(0.2,"cm"),
+          panel.spacing.x=unit(0.3,"cm"),
           panel.grid.major = element_line(linetype = 2,size=0.2),
+          panel.grid.minor = element_line(linetype = 2,size=0.2),
           strip.background = element_rect(fill="white"),
           strip.text = element_text(size=7)) +
     ylab("") +xlab("") +
     facet_grid(dataset~Outcome, scales="free_x") +
+    scale_x_continuous(expand=expansion(mult=0.1),breaks=scales::breaks_pretty(n=4)) +
     #facet_wrap(Outcome~dataset,labeller = function(.x) {label_value(.x,multi_line = TRUE)},scales="free_x",ncol=2) +
     theme(strip.placement = "outside") +
     NULL#coord_cartesian(xlim=c(-10,10))
